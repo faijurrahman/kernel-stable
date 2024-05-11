@@ -449,22 +449,16 @@ static int boe_tv110c9m_init(struct boe_panel *boe)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x55, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbb, 0x13);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3b, 0x03, 0x96, 0x1a, 0x04, 0x04);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(100);
+	mipi_dsi_msleep(&ctx, 100);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x11);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(200);
+	mipi_dsi_msleep(&ctx, 200);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x29);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(100);
+	mipi_dsi_msleep(&ctx, 100);
 
 	return 0;
 };
@@ -894,22 +888,16 @@ static int inx_hj110iz_init(struct boe_panel *boe)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x01);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x35, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3b, 0x03, 0xae, 0x1a, 0x04, 0x04);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(100);
+	mipi_dsi_msleep(&ctx, 100);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x11);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(200);
+	mipi_dsi_msleep(&ctx, 200);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x29);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(100);
+	mipi_dsi_msleep(&ctx, 100);
 
 	return 0;
 };
@@ -1208,10 +1196,8 @@ static int boe_init(struct boe_panel *boe)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb3, 0x08);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x04);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb8, 0x68);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(150);
+	mipi_dsi_msleep(&ctx, 150);
 
 	return 0;
 };
@@ -1223,16 +1209,12 @@ static int auo_kd101n80_45na_init(struct boe_panel *boe)
 	msleep(24);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x11);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(120);
+	mipi_dsi_msleep(&ctx, 120);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x29);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(120);
+	mipi_dsi_msleep(&ctx, 120);
 
 	return 0;
 };
@@ -1284,10 +1266,8 @@ static int auo_b101uan08_3_init(struct boe_panel *boe)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xe5, 0x4f);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xe6, 0x41);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xe7, 0x41);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(150);
+	mipi_dsi_msleep(&ctx, 150);
 
 	return 0;
 };
@@ -1386,16 +1366,12 @@ static int starry_qfh032011_53g_init(struct boe_panel *boe)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xe1, 0x23);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xe2, 0x07);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0X11);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(120);
+	mipi_dsi_msleep(&ctx, 120);
 
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0X29);
-	if (ctx.accum_err)
-		return ctx.accum_err;
 
-	msleep(80);
+	mipi_dsi_msleep(&ctx, 80);
 
 	return 0;
 };
@@ -1507,38 +1483,19 @@ static inline struct boe_panel *to_boe_panel(struct drm_panel *panel)
 	return container_of(panel, struct boe_panel, base);
 }
 
-static int boe_panel_enter_sleep_mode(struct boe_panel *boe)
-{
-	struct mipi_dsi_device *dsi = boe->dsi;
-	int ret;
-
-	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-
-	ret = mipi_dsi_dcs_set_display_off(dsi);
-	if (ret < 0)
-		return ret;
-
-	ret = mipi_dsi_dcs_enter_sleep_mode(dsi);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
 static int boe_panel_disable(struct drm_panel *panel)
 {
 	struct boe_panel *boe = to_boe_panel(panel);
-	int ret;
+	struct mipi_dsi_multi_context ctx = { .dsi = boe->dsi };
 
-	ret = boe_panel_enter_sleep_mode(boe);
-	if (ret < 0) {
-		dev_err(panel->dev, "failed to set panel off: %d\n", ret);
-		return ret;
-	}
+	boe->dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 
-	msleep(150);
+	mipi_dsi_dcs_set_display_off_multi(&ctx);
+	mipi_dsi_dcs_enter_sleep_mode_multi(&ctx);
 
-	return 0;
+	mipi_dsi_msleep(&ctx, 150);
+
+	return ctx.accum_err;
 }
 
 static int boe_panel_unprepare(struct drm_panel *panel)

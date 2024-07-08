@@ -18,7 +18,7 @@ iwlmvm-$(CONFIG_PM) += d3.o
 subdir-ccflags-y += -I$(srctree)/$(src)/../
 
 # non-upstream things
-iwlmvm-$(CPTCFG_IWLMVM_VENDOR_CMDS) += vendor-cmd.o
+iwlmvm-$(CPTCFG_IWL_VENDOR_CMDS) += vendor-cmd.o
 
 ifeq ($(CPTCFG_IWLWIFI_SIMULATION),y)
 UBSAN_SANITIZE := y

@@ -76,7 +76,11 @@ int sched_energy_aware_handler(struct ctl_table *table, int write,
 extern unsigned long sysctl_sched_min_load_balance_interval;
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_X86
+DECLARE_STATIC_KEY_FALSE(sched_aggressive_next_balance);
+#else
 DECLARE_STATIC_KEY_TRUE(sched_aggressive_next_balance);
+#endif
 #endif
 
 #endif /* _LINUX_SCHED_SYSCTL_H */

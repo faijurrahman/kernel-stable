@@ -17,4 +17,8 @@
 
 &panel {
 	compatible = "kingdisplay,kd101ne3-40ti";
+	/delete-property/ enable-gpios;
+	/delete-property/ pp3300-supply;
+	reset-gpios = <&pio 98 0>;
+	vccio-supply = <&en_pp6000_mipi_disp>;
 };

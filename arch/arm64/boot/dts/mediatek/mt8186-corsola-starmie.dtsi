@@ -100,7 +100,7 @@
 };
 
 &cros_ec {
-	cbas {
+	cbas: cbas {
 		compatible = "google,cros-cbas";
 	};
 

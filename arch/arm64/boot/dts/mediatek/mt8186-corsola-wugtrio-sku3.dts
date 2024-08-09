@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright 2024 Google LLC
+ *
+ * Panel ID: 0x7 (Melfas)
+ * Unprovisioned SKU: 0x7FFFFFF0UL | 0x07
+ */
+
+/dts-v1/;
+#include "mt8186-corsola-wugtrio.dtsi"
+
+/ {
+	model = "Google wugtrio sku3/unprovisioned board";
+	compatible = "google,wugtrio-sku3", "google,wugtrio-sku2147483639",
+		     "google,wugtrio-sku5", "google,wugtrio", "mediatek,mt8186";
+};
+
+&panel {
+	compatible = "melfas,lmfbx101117480";
+	/delete-property/ enable-gpios;
+	/delete-property/ pp3300-supply;
+	reset-gpios = <&pio 98 0>;
+	vccio-supply = <&en_pp6000_mipi_disp>;
+};
+
+&i2c1 {
+	/delete-node/ touchscreen@41;
+	touchscreen_elan: touchscreen@10 {
+		status = "okay";
+
+		compatible = "elan,ekth6a12nay";
+		reg = <0x10>;
+		interrupt-parent = <&pio>;
+		interrupts = <12 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touchscreen_pins>;
+		panel = <&panel>;
+		reset-gpios = <&pio 60 GPIO_ACTIVE_LOW>;
+		vccio-supply = <&pp3300_s3>;
+	};
+};

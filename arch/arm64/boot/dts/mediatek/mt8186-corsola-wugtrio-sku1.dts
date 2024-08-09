@@ -12,9 +12,11 @@
 / {
 	model = "Google wugtrio sku1/unprovisioned board";
 	compatible = "google,wugtrio-sku1", "google,wugtrio-sku2147483632",
-		     "google,wugtrio", "mediatek,mt8186";
+		     "google,wugtrio-sku4", "google,wugtrio", "mediatek,mt8186";
 };
 
 &panel {
 	compatible = "starry,er88577";
+	/delete-property/ pp3300-supply;
+	power-supply = <&en_pp6000_mipi_disp>;
 };

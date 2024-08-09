@@ -1968,22 +1968,6 @@ PVRSRV_ERROR PVRSRVCommonDeviceCreate(void *pvOSDevice,
 	}
 #endif
 
-	/* Initialise the paravirtualised connection */
-	if (!PVRSRV_VZ_MODE_IS(NATIVE))
-	{
-		/* If a device already exists */
-		if (psPVRSRVData->psDeviceNodeList != NULL)
-		{
-			PVR_DPF((PVR_DBG_ERROR,	"%s: Virtualization is currently supported only on single device systems.",
-					 __func__));
-			eError = PVRSRV_ERROR_NOT_SUPPORTED;
-			goto ErrorSysDevDeInit;
-		}
-
-		PvzConnectionInit(psDevConfig);
-		PVR_GOTO_IF_ERROR(eError, ErrorSysDevDeInit);
-	}
-
 	/* Next update value will be 0xFFFFFFF7 since sync prim starts with 0xFFFFFFF6.
 	 * Has to be set before call to PMRInitDevice(). */
 	psDeviceNode->ui32NextMMUInvalidateUpdate = 0xFFFFFFF7U;
@@ -1991,7 +1975,7 @@ PVRSRV_ERROR PVRSRVCommonDeviceCreate(void *pvOSDevice,
 	psDeviceNode->uiPowerOffCounterNext = 1;
 
 	eError = PVRSRVRegisterDeviceDbgTable(psDeviceNode);
-	PVR_GOTO_IF_ERROR(eError, ErrorPvzConnectionDeInit);
+	PVR_GOTO_IF_ERROR(eError, ErrorSysDevDeInit);
 
 	eError = PVRSRVPowerLockInit(psDeviceNode);
 	PVR_GOTO_IF_ERROR(eError, ErrorUnregisterDbgTable);
@@ -2113,12 +2097,28 @@ PVRSRV_ERROR PVRSRVCommonDeviceCreate(void *pvOSDevice,
 	psPVRSRVData->ui32RegisteredDevices++;
 	OSWRLockReleaseWrite(psPVRSRVData->hDeviceNodeListLock);
 
+	/* Initialise the paravirtualised connection */
+	if (!PVRSRV_VZ_MODE_IS(NATIVE))
+	{
+		/* If a device already exists */
+		if (psPVRSRVData->psDeviceNodeList != NULL)
+		{
+			PVR_DPF((PVR_DBG_ERROR,	"%s: Virtualization is currently supported only on single device systems.",
+					 __func__));
+			eError = PVRSRV_ERROR_NOT_SUPPORTED;
+			goto ErrorSysDevDeInit;
+		}
+
+		PvzConnectionInit(psDevConfig);
+		PVR_GOTO_IF_ERROR(eError, ErrorRegisterDVFSDeviceFail);
+	}
+
 	*ppsDeviceNode = psDeviceNode;
 
 #if defined(SUPPORT_LINUX_DVFS) && !defined(NO_HARDWARE)
 	/* Register the DVFS device now the device node is present in the dev-list */
 	eError = RegisterDVFSDevice(psDeviceNode);
-	PVR_LOG_GOTO_IF_ERROR(eError, "RegisterDVFSDevice", ErrorRegisterDVFSDeviceFail);
+	PVR_LOG_GOTO_IF_ERROR(eError, "RegisterDVFSDevice", ErrorPvzConnectionDeInit);
 #endif
 
 #if defined(PVRSRV_ENABLE_PROCESS_STATS) && !defined(PVRSRV_DEBUG_LINUX_MEMORY_STATS)
@@ -2133,7 +2133,15 @@ PVRSRV_ERROR PVRSRVCommonDeviceCreate(void *pvOSDevice,
 	return PVRSRV_OK;
 
 #if defined(SUPPORT_LINUX_DVFS) && !defined(NO_HARDWARE)
+ErrorPvzConnectionDeInit:
+#endif
+	psDevConfig->psDevNode = NULL;
+	if (!PVRSRV_VZ_MODE_IS(NATIVE))
+	{
+		PvzConnectionDeInit();
+	}
 ErrorRegisterDVFSDeviceFail:
+#if defined(SUPPORT_LINUX_DVFS) && !defined(NO_HARDWARE)
 	/* Remove the device from the list */
 	OSWRLockAcquireWrite(psPVRSRVData->hDeviceNodeListLock);
 	List_PVRSRV_DEVICE_NODE_Remove(psDeviceNode);
@@ -2180,12 +2188,6 @@ ErrorPowerLockDeInit:
 	PVRSRVPowerLockDeInit(psDeviceNode);
 ErrorUnregisterDbgTable:
 	PVRSRVUnregisterDeviceDbgTable(psDeviceNode);
-ErrorPvzConnectionDeInit:
-	psDevConfig->psDevNode = NULL;
-	if (!PVRSRV_VZ_MODE_IS(NATIVE))
-	{
-		PvzConnectionDeInit();
-	}
 ErrorSysDevDeInit:
 	SysDevDeInit(psDevConfig);
 ErrorDeregisterStats:

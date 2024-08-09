@@ -415,9 +415,17 @@ static PVRSRV_ERROR PMRLockPhysAddressesDmaBuf(PMR_IMPL_PRIVDATA pvPriv)
 	return PVRSRV_OK;
 }
 
+#if defined(SUPPORT_PMR_PAGES_DEFERRED_FREE)
+static PVRSRV_ERROR PMRUnlockPhysAddressesDmaBuf(PMR_IMPL_PRIVDATA pvPriv,
+                                                 PMR_IMPL_ZOMBIEPAGES *ppvZombiePages)
+#else
 static PVRSRV_ERROR PMRUnlockPhysAddressesDmaBuf(PMR_IMPL_PRIVDATA pvPriv)
+#endif
 {
 	PVR_UNREFERENCED_PARAMETER(pvPriv);
+#if defined(SUPPORT_PMR_PAGES_DEFERRED_FREE)
+	*ppvZombiePages = NULL;
+#endif
 	return PVRSRV_OK;
 }
 
@@ -1097,7 +1105,25 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 #if defined(SUPPORT_PMR_DEFERRED_FREE)
 		if (PMR_IsZombie(psPMR))
 		{
+#if defined(PVRSRV_ENABLE_PROCESS_STATS)
+			PMR_DMA_BUF_DATA *psPrivData = PMRGetPrivateData(psPMR, &_sPMRDmaBufFuncTab);
+#endif
+
 			PMRDequeueZombieAndRef(psPMR);
+
+#if defined(PVRSRV_ENABLE_PROCESS_STATS)
+			if (psPrivData != NULL)
+			{
+				PVRSRVStatsIncrMemAllocStat(PVRSRV_MEM_ALLOC_TYPE_DMA_BUF_IMPORT,
+				                            psPrivData->ui32PhysPageCount << PAGE_SHIFT,
+				                            OSGetCurrentClientProcessIDKM());
+				PVRSRVStatsDecrMemAllocStat(PVRSRV_MEM_ALLOC_TYPE_DMA_BUF_ZOMBIE,
+				                            psPrivData->ui32PhysPageCount << PAGE_SHIFT,
+				                            OSGetCurrentClientProcessIDKM());
+			}
+#endif
+
+			PVRSRVIonReviveMemAllocRecord(psDmaBuf);
 		}
 		else
 #endif /* defined(SUPPORT_PMR_DEFERRED_FREE) */

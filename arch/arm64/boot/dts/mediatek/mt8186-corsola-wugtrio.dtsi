@@ -9,18 +9,34 @@
 
 /delete-node/ &en_pp6000_mipi_disp_150ma;
 /delete-node/ &pp6000_mipi_disp_150ma_fixed_pins;
+/delete-node/ &cbas;
 
 &i2c4 {
 	status = "okay";
 	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pins &sar_sensor_pins>;
 
-	ap_sar_sensor: hx9031as@28 {
-		compatible = "tyhx,hx9031as";
+	hx9023s@28 {
+		compatible = "tyhx,hx9023s";
 		reg = <0x28>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&sar_sensor_pins>;
-		interrupt-parent = <&pio>;
-		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+		interrupts-extended = <&pio 5 IRQ_TYPE_LEVEL_LOW>;
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+		channel@1 {
+			reg = <1>;
+			single-channel = <1>;
+		};
+	};
+
+	sx9324@2c {
+		compatible = "semtech,sx9324";
+		reg = <0x2c>;
+		#io-channel-cells = <1>;
+		interrupts-extended = <&pio 5 IRQ_TYPE_LEVEL_LOW>;
+		vdd-supply = <&mt6366_vio18_reg>;
+		svdd-supply = <&mt6366_vio18_reg>;
 	};
 };
 
@@ -43,6 +59,71 @@
 	/* ili2900 and ili2901 use the same timing */
 	compatible = "ilitek,ili2900", "ilitek,ili2901";
 	vccio-supply = <&pp3300_s3>;
+};
+
+&thermal_zones {
+	tboard2 {
+		polling-delay = <1000>; /* milliseconds */
+		polling-delay-passive = <50>; /* milliseconds */
+		thermal-sensors = <&tboard_thermistor2>;
+		sustainable-power = <1000>;
+
+		trips {
+			pmic_temp_alert0: trip-point@0 {
+				temperature = <50000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			pmic_temp_alert1: target@1 {
+				temperature = <60000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			pmic_ntc_crit: pmic-ntc-crit@0 {
+				temperature = <80000>;
+				hysteresis = <2000>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&pmic_temp_alert1>;
+				cooling-device = <&cpu0
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu1
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu2
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu3
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu4
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu5
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>;
+				contribution = <4096>;
+			};
+
+			map1 {
+				trip = <&pmic_temp_alert1>;
+				cooling-device = <&cpu6
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>,
+						<&cpu7
+					THERMAL_NO_LIMIT
+					THERMAL_NO_LIMIT>;
+				contribution = <1024>;
+			};
+		};
+	};
 };
 
 &mt6366codec {

@@ -651,14 +651,6 @@ void iwl_mvm_rs_fw_rate_init(struct iwl_mvm *mvm,
 	int cmd_ver;
 	int ret;
 
-	/* Enable external EHT LTF only for GL device and if there's
-	 * mutual support by AP and client
-	 */
-#ifdef CPTCFG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
-	if (!mvm->trans->dbg_cfg.eht_disable_extra_ltf)
-#endif
-	{}
-
 	rcu_read_lock();
 	mvm_link_sta = rcu_dereference(mvmsta->link[link_id]);
 	if (WARN_ON_ONCE(!mvm_link_sta)) {

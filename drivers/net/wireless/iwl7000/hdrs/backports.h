@@ -547,6 +547,7 @@ ssize_t wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
 	return ret;
 }
 #endif
+#define KUNIT_STATIC_STUB_REDIRECT(real_fn_name, args...) do {} while (0)
 
 static inline void cfg80211_schedule_channels_check(struct wireless_dev *wdev)
 {

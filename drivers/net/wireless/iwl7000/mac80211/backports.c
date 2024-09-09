@@ -377,7 +377,11 @@ EXPORT_SYMBOL_GPL(wiphy_delayed_work_queue);
 void wiphy_delayed_work_cancel(struct wiphy *wiphy,
 			       struct wiphy_delayed_work *dwork)
 {
+#if LINUX_VERSION_IS_LESS(5,12,0)
+	ASSERT_RTNL();
+#else
 	lockdep_assert_held(&wiphy->mtx);
+#endif
 
 	del_timer_sync(&dwork->timer);
 	wiphy_work_cancel(wiphy, &dwork->work);

@@ -8,8 +8,8 @@
 #include "mt6315.dtsi"
 
 / {
-	model = "Google Steelix sku131077/131079 board";
-	compatible = "google,steelix-sku131077", "google,steelix-sku131079",
+	model = "Google Steelix sku131077 board";
+	compatible = "google,steelix-sku131077",
 		     "google,steelix", "mediatek,mt8186";
 };
 

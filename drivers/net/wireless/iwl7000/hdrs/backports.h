@@ -266,6 +266,10 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype type)
 	return NULL;
 }
 
+#ifndef for_each_valid_link
+#define for_each_valid_link(dev, id) for (link_id = 0; link_id < 1; link_id++)
+#endif
+
 #define ASSOC_REQ_DISABLE_EHT BIT(5)
 #define NL80211_EXT_FEATURE_POWERED_ADDR_CHANGE -1
 
@@ -712,6 +716,13 @@ static inline void LINUX_BACKPORT(free_netdev)(struct net_device *dev)
 	free_netdev(dev);
 }
 #define free_netdev LINUX_BACKPORT(free_netdev)
+
+#define kmemdup_array LINUX_BACKPORT(kmemdup_array)
+static inline void *
+kmemdup_array(const void *src, size_t count, size_t element_size, gfp_t gfp)
+{
+       return kmemdup(src, element_size * count, gfp);
+}
 
 
 enum ieee80211_ap_reg_power {

@@ -48,6 +48,8 @@ void ieee80211_link_init(struct ieee80211_sub_if_data *sdata,
 			  ieee80211_color_collision_detection_work);
 	INIT_LIST_HEAD(&link->assigned_chanctx_list);
 	INIT_LIST_HEAD(&link->reserved_chanctx_list);
+	wiphy_delayed_work_init(&link->dfs_cac_timer_work,
+				ieee80211_dfs_cac_timer_work);
 
 	if (!deflink) {
 		switch (sdata->vif.type) {
@@ -69,6 +71,15 @@ void ieee80211_link_stop(struct ieee80211_link_data *link)
 			  &link->color_change_finalize_work);
 	wiphy_work_cancel(link->sdata->local->hw.wiphy,
 			  &link->csa.finalize_work);
+
+	if (link->sdata->wdev.cac_started) {
+		wiphy_delayed_work_cancel(link->sdata->local->hw.wiphy,
+					  &link->dfs_cac_timer_work);
+		cfg80211_cac_event(link->sdata->dev,
+				   &link->conf->chanreq.oper,
+				   NL80211_RADAR_CAC_ABORTED, GFP_KERNEL);
+	}
+
 	ieee80211_link_release_channel(link);
 }
 

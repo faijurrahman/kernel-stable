@@ -927,15 +927,12 @@ ieee80211_tdls_build_mgmt_packet_data(struct ieee80211_sub_if_data *sdata,
 
 	skb = netdev_alloc_skb(sdata->dev,
 			       local->hw.extra_tx_headroom +
-			       max(sizeof(struct ieee80211_mgmt),
-				   sizeof(struct ieee80211_tdls_data)) +
+			       max(sizeof(struct ieee80211_mgmt), (typeof(sizeof(struct ieee80211_mgmt)))sizeof(struct ieee80211_tdls_data)) +
 			       50 + /* supported rates */
 			       10 + /* ext capab */
 			       26 + /* max(WMM-info, WMM-param) */
-			       2 + max(sizeof(struct ieee80211_ht_cap),
-				       sizeof(struct ieee80211_ht_operation)) +
-			       2 + max(sizeof(struct ieee80211_vht_cap),
-				       sizeof(struct ieee80211_vht_operation)) +
+			       2 + max(sizeof(struct ieee80211_ht_cap), (typeof(sizeof(struct ieee80211_ht_cap)))sizeof(struct ieee80211_ht_operation)) +
+			       2 + max(sizeof(struct ieee80211_vht_cap), (typeof(sizeof(struct ieee80211_vht_cap)))sizeof(struct ieee80211_vht_operation)) +
 			       2 + 1 + sizeof(struct ieee80211_he_cap_elem) +
 				       sizeof(struct ieee80211_he_mcs_nss_supp) +
 				       IEEE80211_HE_PPE_THRES_MAX_LEN +

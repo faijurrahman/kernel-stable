@@ -1276,6 +1276,15 @@ static enum page_references page_check_references(struct page *page,
 					  &vm_flags);
 	referenced_page = TestClearPageReferenced(page);
 
+	if (lru_gen_enabled()) {
+		int gen = lru_raw_gen_from_flags(READ_ONCE(page->flags));
+
+		VM_WARN_ON_ONCE_PAGE(gen < ISOLATED_PAGE_MIN, page);
+
+		if (gen > ISOLATED_PAGE_MIN)
+			referenced_ptes += gen - ISOLATED_PAGE_MIN;
+	}
+
 	/*
 	 * Mlock lost the isolation race with us.  Let try_to_unmap()
 	 * move the page to the unevictable list.
@@ -1444,11 +1453,6 @@ retry:
 			goto activate_locked;
 
 		if (!sc->may_unmap && page_mapped(page))
-			goto keep_locked;
-
-		/* page_update_gen() tried to promote this page? */
-		if (lru_gen_enabled() && !ignore_references &&
-		    page_mapped(page) && PageReferenced(page))
 			goto keep_locked;
 
 		may_enter_fs = (sc->gfp_mask & __GFP_FS) ||
@@ -3453,23 +3457,41 @@ static bool positive_ctrl_err(struct ctrl_pos *sp, struct ctrl_pos *pv)
 static int page_update_gen(struct page *page, int gen)
 {
 	unsigned long new_flags, old_flags = READ_ONCE(page->flags);
+	int old_gen;
 
-	VM_WARN_ON_ONCE(gen >= MAX_NR_GENS);
+	VM_WARN_ON_ONCE(gen >= (int) MAX_NR_GENS);
 	VM_WARN_ON_ONCE(!rcu_read_lock_held());
 
 	do {
+		old_gen = lru_raw_gen_from_flags(old_flags);
+		/*
+		 * ptes are created before pages are added to the lru, so we can
+		 * come across a page with no generation when walking page
+		 * tables. Newly added pages are marked active by page_add_lru(),
+		 * so they will already be inserted into the newest generation.
+		 */
+		if (old_gen == -1)
+			break;
+
 		/* lru_gen_del_page() has isolated this page? */
-		if (!(old_flags & LRU_GEN_MASK)) {
-			/* for shrink_page_list() */
-			new_flags = old_flags | BIT(PG_referenced);
+		if (old_gen >= ISOLATED_PAGE_MIN) {
+			unsigned long new_gen = min(old_gen + 1, (int) ISOLATED_PAGE_MAX);
+
+			/* for page_check_references() */
+			new_flags = old_flags & ~LRU_GEN_MASK;
+			new_flags |= (new_gen + 1) << LRU_GEN_PGOFF;
+			old_gen = -1;
 			continue;
 		}
+
+		if (gen < 0)
+			break;
 
 		new_flags = old_flags & ~(LRU_GEN_MASK | LRU_REFS_MASK | LRU_REFS_FLAGS);
 		new_flags |= (gen + 1UL) << LRU_GEN_PGOFF;
 	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
 
-	return ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+	return old_gen;
 }
 
 /* protect pages accessed multiple times through file descriptors */
@@ -3480,7 +3502,7 @@ static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaimin
 	int new_gen, old_gen = lru_gen_from_seq(lrugen->min_seq[type]);
 	unsigned long new_flags, old_flags = READ_ONCE(page->flags);
 
-	VM_WARN_ON_ONCE_PAGE(!(old_flags & LRU_GEN_MASK), page);
+	VM_WARN_ON_ONCE_PAGE(page_lru_gen(page) == -1, page);
 
 	do {
 		new_gen = ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
@@ -4529,10 +4551,8 @@ bool lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 			continue;
 		}
 
-		old_gen = page_lru_gen(page);
-		if (old_gen < 0)
-			SetPageReferenced(page);
-		else if (old_gen != new_gen)
+		old_gen = page_update_gen(page, -1);
+		if (old_gen != new_gen)
 			activate_page(page);
 	}
 
@@ -4561,7 +4581,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 	int tier = lru_tier_from_refs(refs);
 	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
-	VM_WARN_ON_ONCE_PAGE(gen >= MAX_NR_GENS, page);
+	VM_WARN_ON_ONCE_PAGE(gen == -1, page);
 
 	/* unevictable */
 	if (!page_evictable(page)) {
@@ -4638,7 +4658,6 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 
 	/* for shrink_page_list() */
 	ClearPageReclaim(page);
-	ClearPageReferenced(page);
 
 	success = lru_gen_del_page(lruvec, page, true);
 	VM_WARN_ON_ONCE_PAGE(!success, page);
@@ -4846,14 +4865,6 @@ retry:
 		if (!page_evictable(page)) {
 			list_del(&page->lru);
 			putback_lru_page(page);
-			continue;
-		}
-
-		if (PageReclaim(page) &&
-		    (PageDirty(page) || PageWriteback(page))) {
-			/* restore LRU_REFS_FLAGS cleared by isolate_page() */
-			if (PageWorkingset(page))
-				SetPageReferenced(page);
 			continue;
 		}
 

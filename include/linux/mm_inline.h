@@ -98,12 +98,27 @@ static inline bool lru_gen_enabled(void)
 
 	return static_branch_likely(&lru_gen_caps[LRU_GEN_CORE]);
 }
+
+static inline bool lru_gen_aggressive_mm(void)
+{
+	DECLARE_STATIC_KEY_TRUE(lru_gen_caps[NR_LRU_GEN_CAPS]);
+
+	return static_branch_likely(&lru_gen_caps[LRU_GEN_AGGRESSIVE_MM]);
+}
+
 #else
 static inline bool lru_gen_enabled(void)
 {
 	DECLARE_STATIC_KEY_FALSE(lru_gen_caps[NR_LRU_GEN_CAPS]);
 
 	return static_branch_unlikely(&lru_gen_caps[LRU_GEN_CORE]);
+}
+
+static inline bool lru_gen_aggressive_mm(void)
+{
+	DECLARE_STATIC_KEY_FALSE(lru_gen_caps[NR_LRU_GEN_CAPS]);
+
+	return static_branch_likely(&lru_gen_caps[LRU_GEN_AGGRESSIVE_MM]);
 }
 #endif
 
@@ -305,6 +320,11 @@ static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bo
 #else /* !CONFIG_LRU_GEN */
 
 static inline bool lru_gen_enabled(void)
+{
+	return false;
+}
+
+static inline bool lru_gen_aggressive_mm(void)
 {
 	return false;
 }

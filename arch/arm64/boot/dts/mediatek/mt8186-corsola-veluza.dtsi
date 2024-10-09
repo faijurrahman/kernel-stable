@@ -68,10 +68,6 @@
 	>;
 };
 
-&target {
-	temperature = <98000>;
-};
-
 &fhctl {
 	mediatek,hopping-ssc-percent = <1>;
 	status = "okay";

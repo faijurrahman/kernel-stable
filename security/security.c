@@ -32,6 +32,10 @@
 
 #define MAX_LSM_EVM_XATTR	2
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/cros_file.h>
+#undef CREATE_TRACE_POINTS
+
 /* How many LSMs were built into the kernel? */
 #define LSM_COUNT (__end_lsm_info - __start_lsm_info)
 
@@ -976,7 +980,7 @@ int security_sb_statfs(struct dentry *dentry)
 int security_sb_mount(const char *dev_name, const struct path *path,
                        const char *type, unsigned long flags, void *data)
 {
-	return call_int_hook(sb_mount, 0, dev_name, path, type, flags, data);
+	return  call_int_hook(sb_mount, 0, dev_name, path, type, flags, data);
 }
 
 int security_sb_umount(struct vfsmount *mnt, int flags)
@@ -1240,16 +1244,29 @@ EXPORT_SYMBOL_GPL(security_inode_create);
 int security_inode_link(struct dentry *old_dentry, struct inode *dir,
 			 struct dentry *new_dentry)
 {
-	if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry))))
+	int ret;
+
+	if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry)))) {
+		trace_cros_security_inode_link_exit(old_dentry, dir, new_dentry,
+						    0);
 		return 0;
-	return call_int_hook(inode_link, 0, old_dentry, dir, new_dentry);
+	}
+	ret = call_int_hook(inode_link, 0, old_dentry, dir, new_dentry);
+	trace_cros_security_inode_link_exit(old_dentry, dir, new_dentry, ret);
+	return ret;
 }
 
 int security_inode_unlink(struct inode *dir, struct dentry *dentry)
 {
-	if (unlikely(IS_PRIVATE(d_backing_inode(dentry))))
+	int ret;
+
+	if (unlikely(IS_PRIVATE(d_backing_inode(dentry)))) {
+		trace_cros_security_inode_unlink_exit(dir, dentry, 0);
 		return 0;
-	return call_int_hook(inode_unlink, 0, dir, dentry);
+	}
+	ret = call_int_hook(inode_unlink, 0, dir, dentry);
+	trace_cros_security_inode_unlink_exit(dir, dentry, ret);
+	return ret;
 }
 
 int security_inode_symlink(struct inode *dir, struct dentry *dentry,
@@ -1286,19 +1303,31 @@ int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
 			   struct inode *new_dir, struct dentry *new_dentry,
 			   unsigned int flags)
 {
-        if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry)) ||
-            (d_is_positive(new_dentry) && IS_PRIVATE(d_backing_inode(new_dentry)))))
+	int ret = 0;
+
+	if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry)) ||
+		     (d_is_positive(new_dentry) &&
+		      IS_PRIVATE(d_backing_inode(new_dentry))))) {
+		trace_cros_security_inode_rename_exit(
+			old_dir, old_dentry, new_dir, new_dentry, flags, 0);
 		return 0;
+	}
 
 	if (flags & RENAME_EXCHANGE) {
 		int err = call_int_hook(inode_rename, 0, new_dir, new_dentry,
 						     old_dir, old_dentry);
-		if (err)
+		if (err) {
+			trace_cros_security_inode_rename_exit(
+				old_dir, old_dentry, new_dir, new_dentry, flags,
+				err);
 			return err;
+		}
 	}
-
-	return call_int_hook(inode_rename, 0, old_dir, old_dentry,
-					   new_dir, new_dentry);
+	ret = call_int_hook(inode_rename, 0, old_dir, old_dentry, new_dir,
+			    new_dentry);
+	trace_cros_security_inode_rename_exit(old_dir, old_dentry, new_dir,
+					      new_dentry, flags, ret);
+	return ret;
 }
 
 int security_inode_readlink(struct dentry *dentry)

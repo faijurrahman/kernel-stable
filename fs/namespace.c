@@ -36,6 +36,8 @@
 #include "pnode.h"
 #include "internal.h"
 
+#include <trace/events/cros_file.h>
+
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
 
@@ -1760,6 +1762,7 @@ int path_umount(struct path *path, int flags)
 	struct mount *mnt = real_mount(path->mnt);
 	int ret;
 
+	trace_cros_path_umount_entry(path, flags);
 	ret = can_umount(path, flags);
 	if (!ret)
 		ret = do_umount(mnt, flags);
@@ -1767,6 +1770,7 @@ int path_umount(struct path *path, int flags)
 	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
 	dput(path->dentry);
 	mntput_no_expire(mnt);
+	trace_cros_path_umount_exit(path, flags, ret);
 	return ret;
 }
 
@@ -3279,14 +3283,20 @@ int path_mount(const char *dev_name, struct path *path,
 	if (data_page)
 		((char *)data_page)[PAGE_SIZE - 1] = 0;
 
-	if (flags & MS_NOUSER)
+	if (flags & MS_NOUSER) {
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EINVAL);
 		return -EINVAL;
+	}
 
 	ret = security_sb_mount(dev_name, path, type_page, flags, data_page);
-	if (ret)
+	if (ret) {
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EPERM);
 		return ret;
-	if (!may_mount())
+		}
+	if (!may_mount()) {
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EPERM);
 		return -EPERM;
+	}
 	if (flags & SB_MANDLOCK)
 		warn_mandlock();
 
@@ -3347,19 +3357,36 @@ int path_mount(const char *dev_name, struct path *path,
 			    SB_LAZYTIME |
 			    SB_I_VERSION);
 
-	if ((flags & (MS_REMOUNT | MS_BIND)) == (MS_REMOUNT | MS_BIND))
-		return do_reconfigure_mnt(path, mnt_flags);
-	if (flags & MS_REMOUNT)
-		return do_remount(path, flags, sb_flags, mnt_flags, data_page);
-	if (flags & MS_BIND)
-		return do_loopback(path, dev_name, flags & MS_REC);
-	if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE))
-		return do_change_type(path, flags);
-	if (flags & MS_MOVE)
-		return do_move_mount_old(path, dev_name);
+	if ((flags & (MS_REMOUNT | MS_BIND)) == (MS_REMOUNT | MS_BIND)) {
+		ret = do_reconfigure_mnt(path, mnt_flags);
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+		return ret;
+	}
+	if (flags & MS_REMOUNT) {
+		ret = do_remount(path, flags, sb_flags, mnt_flags, data_page);
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+		return ret;
+	}
+	if (flags & MS_BIND) {
+		ret = do_loopback(path, dev_name, flags & MS_REC);
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+		return ret;
+	}
+	if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)) {
+		ret = do_change_type(path, flags);
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+		return ret;
+	}
+	if (flags & MS_MOVE) {
+		ret = do_move_mount_old(path, dev_name);
+		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+		return ret;
+	}
 
-	return do_new_mount(path, type_page, sb_flags, mnt_flags, dev_name,
+	ret = do_new_mount(path, type_page, sb_flags, mnt_flags, dev_name,
 			    data_page);
+	trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+	return ret;
 }
 
 long do_mount(const char *dev_name, const char __user *dir_name,

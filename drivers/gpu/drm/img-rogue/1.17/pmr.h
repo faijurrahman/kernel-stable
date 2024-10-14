@@ -758,13 +758,13 @@ IMG_BOOL
 PMRQueueZombiesForCleanup(PPVRSRV_DEVICE_NODE psDevNode);
 
 /*
- * PMRDequeueZombieAndRef
+ * PMRReviveZombieAndRef
  *
  * Removed the PMR either form zombie list or cleanup item's list
  * and references it.
  */
 void
-PMRDequeueZombieAndRef(PMR *psPMR);
+PMRReviveZombieAndRef(PMR *psPMR);
 #endif /* defined(SUPPORT_PMR_DEFERRED_FREE) */
 
 /*
@@ -1233,5 +1233,18 @@ PMRLockPMR(PMR *psPMR);
  */
 void
 PMRUnlockPMR(PMR *psPMR);
+
+#if defined(SUPPORT_PMR_DEVICE_IMPORT_DEFERRED_FREE)
+/*
+ *
+ * PMR_RegisterDeviceImport()
+ *
+ * Register the PMR with the device node.
+ * This is required for the PMR to be marked as a XD PMR.
+ * Silently handles if the PMR is already registered with the device.
+ */
+PVRSRV_ERROR
+PMR_RegisterDeviceImport(PMR* psPMR, PPVRSRV_DEVICE_NODE psDevNode);
+#endif /* defined(SUPPORT_PMR_DEVICE_IMPORT_DEFERRED_FREE) */
 
 #endif /* #ifdef SRVSRV_PMR_H */

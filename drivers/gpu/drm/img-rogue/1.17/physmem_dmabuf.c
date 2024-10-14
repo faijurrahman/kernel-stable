@@ -1073,7 +1073,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 			PVR_DPF((PVR_DBG_ERROR, "%s: PMR invalid for this device",
 					 __func__));
 			eError = PVRSRV_ERROR_PMR_NOT_PERMITTED;
-			goto err;
+			goto errUnlockAndDMAPut;
 		}
 	}
 	else
@@ -1094,7 +1094,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 			if (!g_psDmaBufHash)
 			{
 				eError = PVRSRV_ERROR_OUT_OF_MEMORY;
-				goto err;
+				goto errUnlockAndDMAPut;
 			}
 			bHashTableCreated = IMG_TRUE;
 		}
@@ -1109,7 +1109,7 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 			PMR_DMA_BUF_DATA *psPrivData = PMRGetPrivateData(psPMR, &_sPMRDmaBufFuncTab);
 #endif
 
-			PMRDequeueZombieAndRef(psPMR);
+			PMRReviveZombieAndRef(psPMR);
 
 #if defined(PVRSRV_ENABLE_PROCESS_STATS)
 			if (psPrivData != NULL)
@@ -1132,30 +1132,41 @@ PhysmemImportSparseDmaBuf(CONNECTION_DATA *psConnection,
 			PMRRefPMR(psPMR);
 		}
 
+		/* If an existing PMR is found, the table wasn't created by this func
+		 * call, so the error path can be safely ignored allowing for
+		 * the factory lock can be dropped. */
+		PVR_ASSERT(bHashTableCreated == IMG_FALSE);
+		dma_buf_put(psDmaBuf);
+		mutex_unlock(&g_HashLock);
+
+#if defined(SUPPORT_PMR_DEVICE_IMPORT_DEFERRED_FREE)
+		/* The device import can only be registered on an alive & healthy PMR
+		 * therefore we wait for the potential zombie to be dequeued first. */
+		eError = PMR_RegisterDeviceImport(psPMR, psDevNode);
+		if (eError != PVRSRV_OK)
+		{
+			/* The hash lock might be taken in PMRUnrefPMR. */
+			(void) PMRUnrefPMR(psPMR);
+			PVR_DPF((PVR_DBG_ERROR, "%s: Failed to register PMR with device: %u",
+			        __func__, psDevNode->sDevId.ui32InternalID));
+			goto errReturn;
+		}
+#endif /* defined(SUPPORT_PMR_DEVICE_IMPORT_DEFERRED_FREE) */
+
 		*ppsPMRPtr = psPMR;
 		PMR_LogicalSize(psPMR, puiSize);
 		*puiAlign = PAGE_SIZE;
+		/*
+		 * We expect a PMR to be immutable at this point
+		 * But its explicitly set here to cover a corner case
+		 * where a PMR created through non-DMA interface could be
+		 *  imported back again through DMA interface */
+		PMR_SetLayoutFixed(psPMR, IMG_TRUE);
+
+		return PVRSRV_OK;
 	}
 	/* No errors so far */
 	eError = PVRSRV_OK;
-
-err:
-	if (psPMR || (PVRSRV_OK != eError))
-	{
-		mutex_unlock(&g_HashLock);
-		dma_buf_put(psDmaBuf);
-
-		if (PVRSRV_OK == eError)
-		{
-			/*
-			 * We expect a PMR to be immutable at this point
-			 * But its explicitly set here to cover a corner case
-			 * where a PMR created through non-DMA interface could be
-			 *  imported back again through DMA interface */
-			PMR_SetLayoutFixed(psPMR, IMG_TRUE);
-		}
-		return eError;
-	}
 
 	{ /* Parameter validation - Mapping table entries*/
 		IMG_UINT32 i;

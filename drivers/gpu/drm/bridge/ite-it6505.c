@@ -2572,7 +2572,8 @@ static irqreturn_t it6505_int_threaded_handler(int unused, void *data)
 			it6505_irq_video_error_handler(it6505);
 	}
 
-	pm_runtime_put_sync(dev);
+	pm_runtime_mark_last_busy(dev);
+	pm_runtime_put_autosuspend(dev);
 
 	return IRQ_HANDLED;
 }
@@ -3173,6 +3174,8 @@ static __maybe_unused int it6505_bridge_suspend(struct device *dev)
 {
 	struct it6505 *it6505 = dev_get_drvdata(dev);
 
+	it6505_remove_edid(it6505);
+
 	return it6505_poweroff(it6505);
 }
 
@@ -3705,6 +3708,8 @@ static int it6505_i2c_probe(struct i2c_client *client,
 	DRM_DEV_DEBUG_DRIVER(dev, "it6505 device name: %s", dev_name(dev));
 	debugfs_init(it6505);
 	pm_runtime_enable(dev);
+	pm_runtime_set_autosuspend_delay(dev, 1000);
+	pm_runtime_use_autosuspend(dev);
 
 	it6505->aux.name = "DP-AUX";
 	it6505->aux.dev = dev;

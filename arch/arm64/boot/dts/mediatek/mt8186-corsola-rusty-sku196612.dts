@@ -8,10 +8,9 @@
 #include "mt6315.dtsi"
 
 / {
-	model = "Google Rusty sku196612/196613/196614/196615 board";
+	model = "Google Rusty sku196612/196613/196614 board";
 	compatible = "google,steelix-sku196612", "google,steelix-sku196613",
-		     "google,steelix-sku196614", "google,steelix-sku196615",
-		     "google,steelix", "mediatek,mt8186";
+		     "google,steelix-sku196614", "google,steelix", "mediatek,mt8186";
 };
 
 &cpu6 {

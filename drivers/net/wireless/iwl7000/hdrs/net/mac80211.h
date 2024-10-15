@@ -213,7 +213,7 @@ struct ieee80211_low_level_stats {
  * @IEEE80211_CHANCTX_CHANGE_RADAR: radar detection flag changed
  * @IEEE80211_CHANCTX_CHANGE_CHANNEL: switched to another operating channel,
  *	this is used only with channel switching with CSA
- * @IEEE80211_CHANCTX_CHANGE_MIN_WIDTH: The min required channel width changed
+ * @IEEE80211_CHANCTX_CHANGE_MIN_DEF: The min chandef changed
  * @IEEE80211_CHANCTX_CHANGE_AP: The AP channel definition changed, so (wider
  *	bandwidth) OFDMA settings need to be changed
  * @IEEE80211_CHANCTX_CHANGE_PUNCTURING: The punctured channel(s) bitmap
@@ -224,7 +224,7 @@ enum ieee80211_chanctx_change {
 	IEEE80211_CHANCTX_CHANGE_RX_CHAINS	= BIT(1),
 	IEEE80211_CHANCTX_CHANGE_RADAR		= BIT(2),
 	IEEE80211_CHANCTX_CHANGE_CHANNEL	= BIT(3),
-	IEEE80211_CHANCTX_CHANGE_MIN_WIDTH	= BIT(4),
+	IEEE80211_CHANCTX_CHANGE_MIN_DEF	= BIT(4),
 	IEEE80211_CHANCTX_CHANGE_AP		= BIT(5),
 	IEEE80211_CHANCTX_CHANGE_PUNCTURING	= BIT(6),
 };
@@ -250,6 +250,7 @@ struct ieee80211_chan_req {
  * @min_def: the minimum channel definition currently required.
  * @ap: the channel definition the AP actually is operating as,
  *	for use with (wider bandwidth) OFDMA
+ * @radio_idx: index of the wiphy radio used used for this channel
  * @rx_chains_static: The number of RX chains that must always be
  *	active on the channel to receive MIMO transmissions
  * @rx_chains_dynamic: The number of RX chains that must be enabled
@@ -264,6 +265,7 @@ struct ieee80211_chanctx_conf {
 	struct cfg80211_chan_def min_def;
 	struct cfg80211_chan_def ap;
 
+	int radio_idx;
 	u8 rx_chains_static, rx_chains_dynamic;
 
 	bool radar_enabled;
@@ -735,6 +737,22 @@ struct ieee80211_parsed_tpe {
  *	beamformee
  * @eht_mu_beamformer: in AP-mode, does this BSS enable operation as an EHT MU
  *	beamformer
+ * @eht_80mhz_full_bw_ul_mumimo: in AP-mode, does this BSS support the
+ *	reception of an EHT TB PPDU on an RU that spans the entire PPDU
+ *	bandwidth
+ * @bss_param_ch_cnt: in BSS-mode, the BSS params change count. This
+ *	information is the latest known value. It can come from this link's
+ *	beacon or from a beacon sent by another link.
+ * @bss_param_ch_cnt_link_id: in BSS-mode, the link_id to which the beacon
+ *	that updated &bss_param_ch_cnt belongs. E.g. if link 1 doesn't hear
+ *	its beacons, and link 2 sent a beacon with an RNR element that updated
+ *	link 1's BSS params change count, then, link 1's
+ *	bss_param_ch_cnt_link_id will be 2. That means that link 1 knows that
+ *	link 2 was the link that updated its bss_param_ch_cnt value.
+ *	In case link 1 hears its beacon again, bss_param_ch_cnt_link_id will
+ *	be updated to 1, even if bss_param_ch_cnt didn't change. This allows
+ *	the link to know that it heard the latest value from its own beacon
+ *	(as opposed to hearing its value from another link's beacon).
  */
 struct ieee80211_bss_conf {
 	struct ieee80211_vif *vif;
@@ -828,6 +846,9 @@ struct ieee80211_bss_conf {
 	bool eht_su_beamformer;
 	bool eht_su_beamformee;
 	bool eht_mu_beamformer;
+	bool eht_80mhz_full_bw_ul_mumimo;
+	u8 bss_param_ch_cnt;
+	u8 bss_param_ch_cnt_link_id;
 };
 
 /**

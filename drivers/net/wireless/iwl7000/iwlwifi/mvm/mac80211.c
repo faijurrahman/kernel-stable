@@ -167,12 +167,8 @@ struct ieee80211_regdomain *iwl_mvm_get_regdomain(struct wiphy *wiphy,
 	mvm->lar_regdom_set = true;
 	mvm->mcc_src = src_id;
 
-	/* Some kind of regulatory mess means we need to currently disallow
-	 * puncturing in the US and Canada. Do that here, at least until we
-	 * figure out the new chanctx APIs for puncturing.
-	 */
-	if (resp->mcc == cpu_to_le16(IWL_MCC_US) ||
-	    resp->mcc == cpu_to_le16(IWL_MCC_CANADA))
+	if (!iwl_puncturing_is_allowed_in_bios(mvm->bios_enable_puncturing,
+					       le16_to_cpu(resp->mcc)))
 		ieee80211_hw_set(mvm->hw, DISALLOW_PUNCTURING);
 	else
 		__clear_bit(IEEE80211_HW_DISALLOW_PUNCTURING, mvm->hw->flags);
@@ -654,9 +650,14 @@ int iwl_mvm_mac_setup_register(struct iwl_mvm *mvm)
 			       NL80211_FEATURE_LOW_PRIORITY_SCAN |
 			       NL80211_FEATURE_P2P_GO_OPPPS |
 			       NL80211_FEATURE_AP_MODE_CHAN_WIDTH_CHANGE |
-			       NL80211_FEATURE_DYNAMIC_SMPS |
-			       NL80211_FEATURE_STATIC_SMPS |
 			       NL80211_FEATURE_SUPPORTS_WMM_ADMISSION;
+
+	/* when firmware supports RLC/SMPS offload, do not set these
+	 * driver features, since it's no longer supported by driver.
+	 */
+	if (!iwl_mvm_has_rlc_offload(mvm))
+		hw->wiphy->features |= NL80211_FEATURE_STATIC_SMPS |
+				       NL80211_FEATURE_DYNAMIC_SMPS;
 
 	if (fw_has_capa(&mvm->fw->ucode_capa,
 			IWL_UCODE_TLV_CAPA_TXPOWER_INSERTION_SUPPORT))
@@ -792,7 +793,7 @@ int iwl_mvm_mac_setup_register(struct iwl_mvm *mvm)
 		wiphy_ext_feature_set(hw->wiphy,
 				      NL80211_EXT_FEATURE_MU_MIMO_AIR_SNIFFER);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	iwl_mvm_vendor_cmds_register(mvm);
 #endif
 
@@ -829,7 +830,7 @@ int iwl_mvm_mac_setup_register(struct iwl_mvm *mvm)
 
 	ret = ieee80211_register_hw(mvm->hw);
 	if (ret) {
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 		iwl_mvm_vendor_cmds_unregister(mvm);
 #endif
 		iwl_mvm_leds_exit(mvm);
@@ -891,20 +892,10 @@ void iwl_mvm_mac_tx(struct ieee80211_hw *hw,
 	if (ieee80211_is_mgmt(hdr->frame_control))
 		sta = NULL;
 
-	/* If there is no sta, and it's not offchannel - send through AP */
+	/* this shouldn't even happen: just drop */
 	if (!sta && info->control.vif->type == NL80211_IFTYPE_STATION &&
-	    !offchannel) {
-		struct iwl_mvm_vif *mvmvif =
-			iwl_mvm_vif_from_mac80211(info->control.vif);
-		u8 ap_sta_id = READ_ONCE(mvmvif->deflink.ap_sta_id);
-
-		if (ap_sta_id < mvm->fw->ucode_capa.num_stations) {
-			/* mac80211 holds rcu read lock */
-			sta = rcu_dereference(mvm->fw_id_to_mac_id[ap_sta_id]);
-			if (IS_ERR_OR_NULL(sta))
-				goto drop;
-		}
-	}
+	    !offchannel)
+		goto drop;
 
 	if (tmp_sta && !sta && link_id != IEEE80211_LINK_UNSPECIFIED &&
 	    !ieee80211_is_probe_resp(hdr->frame_control)) {
@@ -1294,7 +1285,7 @@ int __iwl_mvm_mac_start(struct iwl_mvm *mvm)
 		mvm->nvm_data = NULL;
 	}
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	/* fast_resume will be cleared by iwl_mvm_fast_resume */
 	fast_resume = mvm->fast_resume;
 
@@ -1316,7 +1307,7 @@ int __iwl_mvm_mac_start(struct iwl_mvm *mvm)
 			set_bit(IWL_MVM_STATUS_FIRMWARE_RUNNING, &mvm->status);
 		}
 	}
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM_SLEEP */
 
 	if (test_bit(IWL_MVM_STATUS_HW_RESTART_REQUESTED, &mvm->status)) {
 		/*
@@ -1357,20 +1348,7 @@ int iwl_mvm_mac_start(struct ieee80211_hw *hw)
 	int ret;
 
 	mutex_lock(&mvm->mutex);
-
-	/* we are starting the mac not in error flow, and restart is enabled */
-	if (!test_bit(IWL_MVM_STATUS_HW_RESTART_REQUESTED, &mvm->status) &&
-	    iwlwifi_mod_params.fw_restart) {
-		/*
-		 * This will prevent mac80211 recovery flows to trigger during
-		 * init failures
-		 */
-		set_bit(IWL_MVM_STATUS_STARTING, &mvm->status);
-	}
-
 	ret = __iwl_mvm_mac_start(mvm);
-	clear_bit(IWL_MVM_STATUS_STARTING, &mvm->status);
-
 	mutex_unlock(&mvm->mutex);
 
 	iwl_mvm_mei_set_sw_rfkill_state(mvm);
@@ -1391,7 +1369,7 @@ static void iwl_mvm_restart_complete(struct iwl_mvm *mvm)
 		IWL_ERR(mvm, "Failed to update quotas after restart (%d)\n",
 			ret);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	if (mvm->csi_cfg.flags & IWL_CHANNEL_ESTIMATION_ENABLE)
 		iwl_mvm_send_csi_cmd(mvm);
 #endif
@@ -1436,7 +1414,7 @@ void __iwl_mvm_mac_stop(struct iwl_mvm *mvm, bool suspend)
 		iwl_mvm_rm_aux_sta(mvm);
 
 	if (suspend &&
-	    mvm->trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_AX210)
+	    mvm->trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_22000)
 		iwl_mvm_fast_suspend(mvm);
 	else
 		iwl_mvm_stop_device(mvm);
@@ -2086,7 +2064,7 @@ static void iwl_mvm_mc_iface_iterator(void *_data, u8 *mac,
 	};
 	int ret, len;
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	if (!(mvm->rx_filters & IWL_MVM_VENDOR_RXFILTER_EINVAL) &&
 	    mvm->mcast_active_filter_cmd)
 		cmd = mvm->mcast_active_filter_cmd;
@@ -2112,7 +2090,7 @@ static void iwl_mvm_mc_iface_iterator(void *_data, u8 *mac,
 		IWL_ERR(mvm, "mcast filter cmd error. ret=%d\n", ret);
 }
 
-#ifndef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifndef CPTCFG_IWL_VENDOR_CMDS
 static
 #endif
 void iwl_mvm_recalc_multicast(struct iwl_mvm *mvm)
@@ -2207,7 +2185,7 @@ void iwl_mvm_configure_filter(struct ieee80211_hw *hw,
 	if (cmd->pass_all)
 		cmd->count = 0;
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	iwl_mvm_active_rx_filters(mvm);
 #endif
 	iwl_mvm_recalc_multicast(mvm);
@@ -5094,7 +5072,7 @@ void iwl_mvm_change_chanctx(struct ieee80211_hw *hw,
 		      (changed & ~(IEEE80211_CHANCTX_CHANGE_WIDTH |
 				   IEEE80211_CHANCTX_CHANGE_RX_CHAINS |
 				   IEEE80211_CHANCTX_CHANGE_RADAR |
-				   IEEE80211_CHANCTX_CHANGE_MIN_WIDTH)),
+				   IEEE80211_CHANCTX_CHANGE_MIN_DEF)),
 		      "Cannot change PHY. Ref=%d, changed=0x%X\n",
 		      phy_ctxt->ref, changed))
 		return;
@@ -5102,7 +5080,7 @@ void iwl_mvm_change_chanctx(struct ieee80211_hw *hw,
 	guard(mvm)(mvm);
 
 	/* we are only changing the min_width, may be a noop */
-	if (changed == IEEE80211_CHANCTX_CHANGE_MIN_WIDTH) {
+	if (changed == IEEE80211_CHANCTX_CHANGE_MIN_DEF) {
 		if (phy_ctxt->width == def->width)
 			return;
 
@@ -5241,6 +5219,7 @@ static int __iwl_mvm_assign_vif_chanctx(struct iwl_mvm *mvm,
 							false);
 	}
 
+	iwl_vendor_send_link_info_changed_event(mvm, vif);
 	goto out;
 
 out_remove_binding:
@@ -5333,6 +5312,7 @@ static void __iwl_mvm_unassign_vif_chanctx(struct iwl_mvm *mvm,
 	iwl_mvm_update_quotas(mvm, false, disabled_vif);
 	iwl_mvm_binding_remove_vif(mvm, vif);
 
+	iwl_vendor_send_link_info_changed_event(mvm, vif);
 out:
 	if (fw_has_capa(&mvm->fw->ucode_capa, IWL_UCODE_TLV_CAPA_CHANNEL_SWITCH_CMD) &&
 	    switching_chanctx)

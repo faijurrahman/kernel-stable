@@ -226,11 +226,14 @@ free:
 }
 
 enum iwl_rfi_capabilites {
-	IWL_MVM_RFI_DDR_CAPA_CNVI	= BIT(2),
-	IWL_MVM_RFI_DDR_CAPA_SCAN	= BIT(3),
-	IWL_MVM_RFI_DDR_CAPA_ASSOC	= BIT(4),
-	IWL_MVM_RFI_DDR_CAPA_TPT	= BIT(5),
-	IWL_MVM_RFI_DLVR_CAPA		= BIT(9),
+	IWL_MVM_RFI_DDR_CAPA_CNVI		= BIT(2),
+	IWL_MVM_RFI_DDR_CAPA_SCAN		= BIT(3),
+	IWL_MVM_RFI_DDR_CAPA_ASSOC		= BIT(4),
+	IWL_MVM_RFI_DDR_CAPA_TPT		= BIT(5),
+	IWL_MVM_RFI_GET_LINKS_INFO_CAPA		= BIT(7),
+	IWL_MVM_RFI_LINK_INFO_CHANGE_CAPA	= BIT(8),
+	IWL_MVM_RFI_DLVR_CAPA			= BIT(9),
+	IWL_MVM_RFI_DDR_DESENSE_CAPA		= BIT(12),
 };
 
 #define IWL_MVM_RFI_DDR_CAPA_ALL (IWL_MVM_RFI_DDR_CAPA_CNVI	|\
@@ -242,20 +245,24 @@ static int iwl_vendor_rfim_get_capa(struct wiphy *wiphy,
 				    struct wireless_dev *wdev,
 				    const void *data, int data_len)
 {
+	u16 capa = IWL_MVM_RFI_GET_LINKS_INFO_CAPA |
+			IWL_MVM_RFI_LINK_INFO_CHANGE_CAPA;
 	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	struct sk_buff *skb;
-	u16 capa = 0;
 
 	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, 4);
 	if (!skb)
 		return -ENOMEM;
 
 	if (mvm->trans->trans_cfg->integrated) {
-		if (iwl_rfi_supported(mvm, mvm->force_enable_rfi, true))
-			capa = IWL_MVM_RFI_DDR_CAPA_ALL;
-		else
-			capa = IWL_MVM_RFI_DDR_CAPA_CNVI;
+		if (iwl_rfi_supported(mvm, mvm->force_enable_rfi, true)) {
+			capa |= IWL_MVM_RFI_DDR_CAPA_ALL;
+			if (iwl_mvm_rfi_desense_supported(mvm))
+				capa |= IWL_MVM_RFI_DDR_DESENSE_CAPA;
+		} else {
+			capa |= IWL_MVM_RFI_DDR_CAPA_CNVI;
+		}
 	}
 
 	if (iwl_rfi_supported(mvm, mvm->force_enable_rfi, false))
@@ -270,16 +277,31 @@ static int iwl_vendor_rfim_get_capa(struct wiphy *wiphy,
 	return cfg80211_vendor_cmd_reply(skb);
 }
 
+/* RFIM_INFO requires 4 bytes for nlattr.
+ * DDR table will have 4 entries and each entry contains, frequency which
+ * requires 2 bytes for it and 4 bytes for nlattr. channel, bands, chain_a and
+ * chain_b requires 15 bytes each of it and 4 bytes each nlattr, extra 18 bytes
+ * for future.
+ * For desense supported response 4 + 4 * (2 + 4 + 4 * (15 + 4)) + 18 = 350
+ * For desense not supported response 4 + 4 * (2 + 4 + 4 * (15 + 2)) + 18 = 318
+ * For
+ */
+
+#define RFI_DDR_GET_TABLE_RESP_SIZE_WITH_DESENSE	350
+#define RFI_DDR_GET_TABLE_RESP_SIZE			318
 static int iwl_vendor_rfi_ddr_get_table(struct wiphy *wiphy,
 					struct wireless_dev *wdev,
 					const void *data, int data_len)
 {
 	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
-	struct iwl_rfi_freq_table_resp_cmd_v1 *resp;
+	struct iwl_rfi_freq_table_resp_cmd *resp;
 	struct sk_buff *skb = NULL;
 	struct nlattr *rfim_info;
+	int resp_size;
 	int i, ret;
+	u8 notif_ver = iwl_fw_lookup_notif_ver(mvm->fw, SYSTEM_GROUP,
+					       RFI_GET_FREQ_TABLE_CMD, 0);
 
 	resp = iwl_rfi_get_freq_table(mvm);
 
@@ -291,7 +313,12 @@ static int iwl_vendor_rfi_ddr_get_table(struct wiphy *wiphy,
 		goto err;
 	}
 
-	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, sizeof(*rfim_info) + 100);
+	if (notif_ver < 3)
+		resp_size = RFI_DDR_GET_TABLE_RESP_SIZE;
+	else
+		resp_size = RFI_DDR_GET_TABLE_RESP_SIZE_WITH_DESENSE;
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, resp_size);
 	if (!skb) {
 		ret = -ENOMEM;
 		goto err;
@@ -304,6 +331,8 @@ static int iwl_vendor_rfi_ddr_get_table(struct wiphy *wiphy,
 		goto err;
 	}
 
+	BUILD_BUG_ON(ARRAY_SIZE(resp->ddr_table) !=
+		     ARRAY_SIZE(resp->desense_table));
 	for (i = 0; i < ARRAY_SIZE(resp->ddr_table); i++) {
 		if (nla_put_u16(skb, IWL_MVM_VENDOR_ATTR_RFIM_FREQ,
 				le16_to_cpu(resp->ddr_table[i].freq)) ||
@@ -313,6 +342,18 @@ static int iwl_vendor_rfi_ddr_get_table(struct wiphy *wiphy,
 		    nla_put(skb, IWL_MVM_VENDOR_ATTR_RFIM_BANDS,
 			    sizeof(resp->ddr_table[i].bands),
 			    resp->ddr_table[i].bands)) {
+			ret = -ENOBUFS;
+			goto err;
+		}
+		if (notif_ver < 3)
+			continue;
+
+		if (nla_put(skb, IWL_MVM_VENDOR_ATTR_RFIM_CHAIN_A_DESENSE,
+			    sizeof(resp->desense_table[i].chain_a),
+			    resp->desense_table[i].chain_a) ||
+		    nla_put(skb, IWL_MVM_VENDOR_ATTR_RFIM_CHAIN_B_DESENSE,
+			    sizeof(resp->desense_table[i].chain_b),
+			    resp->desense_table[i].chain_b)) {
 			ret = -ENOBUFS;
 			goto err;
 		}
@@ -334,10 +375,13 @@ static int iwl_vendor_rfi_ddr_set_table(struct wiphy *wiphy,
 					const void *data, int data_len)
 {
 	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
-	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
+	struct iwl_rfi_desense_lut_entry *desense_table = NULL;
+	struct iwl_rfi_config_info *rfi_config_info = NULL;
 	struct iwl_rfi_ddr_lut_entry *rfi_ddr_table = NULL;
-	struct nlattr **tb;
+	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
+	bool has_rfi_desense_support;
 	struct nlattr *attr;
+	struct nlattr **tb;
 	int rem, err = 0;
 	int row_idx = -1; /* the row is updated only at frequency attr */
 
@@ -350,35 +394,80 @@ static int iwl_vendor_rfi_ddr_set_table(struct wiphy *wiphy,
 		goto out;
 	}
 
-	rfi_ddr_table = kzalloc(sizeof(*rfi_ddr_table) * IWL_RFI_DDR_LUT_SIZE,
-				GFP_KERNEL);
-	if (!rfi_ddr_table) {
+	rfi_config_info = kzalloc(sizeof(*rfi_config_info), GFP_KERNEL);
+	if (!rfi_config_info) {
 		err = -ENOMEM;
 		goto out;
 	}
 
+	/*
+	 * Fill rfi_config_info with default data to have compatibility
+	 * with old RFI user application.
+	 */
+	memset(&rfi_config_info->desense_table, IWL_RFI_DDR_DESENSE_VALUE,
+	       sizeof(rfi_config_info->desense_table));
+	rfi_config_info->snr_threshold = cpu_to_le32(IWL_RFI_DDR_SNR_THRESHOLD);
+
+	has_rfi_desense_support = iwl_mvm_rfi_desense_supported(mvm);
+	rfi_ddr_table = rfi_config_info->ddr_table;
+	desense_table = rfi_config_info->desense_table;
+
+	BUILD_BUG_ON(ARRAY_SIZE(rfi_config_info->ddr_table) !=
+		     ARRAY_SIZE(rfi_config_info->desense_table));
 	nla_for_each_nested(attr, tb[IWL_MVM_VENDOR_ATTR_RFIM_INFO], rem) {
 		switch (nla_type(attr)) {
 		case IWL_MVM_VENDOR_ATTR_RFIM_FREQ:
 			row_idx++;
+			if (row_idx >= ARRAY_SIZE(rfi_config_info->ddr_table)) {
+				err = -EINVAL;
+				goto out;
+			}
 			rfi_ddr_table[row_idx].freq =
 				cpu_to_le16(nla_get_u16(attr));
 			break;
 		case IWL_MVM_VENDOR_ATTR_RFIM_CHANNELS:
-			if (row_idx < 0) {
+			if (row_idx < 0 ||
+			    nla_len(attr) != sizeof(rfi_ddr_table[0].channels)) {
 				err = -EINVAL;
 				goto out;
 			}
 			memcpy(rfi_ddr_table[row_idx].channels, nla_data(attr),
-			       ARRAY_SIZE(rfi_ddr_table[row_idx].channels));
+			       sizeof(rfi_ddr_table[0].channels));
 			break;
 		case IWL_MVM_VENDOR_ATTR_RFIM_BANDS:
-			if (row_idx < 0) {
+			if (row_idx < 0 ||
+			    nla_len(attr) != sizeof(rfi_ddr_table[0].bands)) {
 				err = -EINVAL;
 				goto out;
 			}
 			memcpy(rfi_ddr_table[row_idx].bands, nla_data(attr),
-			       ARRAY_SIZE(rfi_ddr_table[row_idx].bands));
+			       sizeof(rfi_ddr_table[0].bands));
+			break;
+		case IWL_MVM_VENDOR_ATTR_RFIM_CHAIN_A_DESENSE:
+			if (row_idx < 0 || !has_rfi_desense_support ||
+			    nla_len(attr) != sizeof(desense_table[0].chain_a)) {
+				err = -EINVAL;
+				goto out;
+			}
+			memcpy(desense_table[row_idx].chain_a, nla_data(attr),
+			       sizeof(desense_table[0].chain_a));
+			break;
+		case IWL_MVM_VENDOR_ATTR_RFIM_CHAIN_B_DESENSE:
+			if (row_idx < 0 || !has_rfi_desense_support ||
+			    nla_len(attr) != sizeof(desense_table[0].chain_b)) {
+				err = -EINVAL;
+				goto out;
+			}
+			memcpy(desense_table[row_idx].chain_b, nla_data(attr),
+			       sizeof(desense_table[0].chain_b));
+			break;
+		case IWL_MVM_VENDOR_ATTR_RFIM_DDR_SNR_THRESHOLD:
+			if (!has_rfi_desense_support) {
+				err = -EINVAL;
+				goto out;
+			}
+			rfi_config_info->snr_threshold =
+				cpu_to_le32(nla_get_u32(attr));
 			break;
 		default:
 			IWL_ERR(mvm, "Invalid attribute %d\n", nla_type(attr));
@@ -388,13 +477,13 @@ static int iwl_vendor_rfi_ddr_set_table(struct wiphy *wiphy,
 	}
 
 	mutex_lock(&mvm->mutex);
-	err = iwl_rfi_send_config_cmd(mvm, rfi_ddr_table, false, false);
+	err = iwl_rfi_send_config_cmd(mvm, rfi_config_info, false, false);
 	mutex_unlock(&mvm->mutex);
 	if (err)
 		IWL_ERR(mvm, "Failed to send rfi table to FW, error %d\n", err);
 
 out:
-	kfree(rfi_ddr_table);
+	kfree(rfi_config_info);
 	kfree(tb);
 	return err;
 }
@@ -471,6 +560,100 @@ static int iwl_vendor_rfi_set_cnvi_master(struct wiphy *wiphy,
 free:
 	kfree(tb);
 	return err;
+}
+
+static int
+iwl_vendor_cmd_fill_links_info(struct ieee80211_vif *vif, struct sk_buff *skb)
+{
+	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
+	unsigned int link_id;
+	int ret = 0;
+
+	rcu_read_lock();
+
+	for_each_mvm_vif_valid_link(mvmvif, link_id) {
+		const struct cfg80211_chan_def *chandef;
+		struct ieee80211_bss_conf *link_conf;
+		u8 channel;
+		u8 phy_band;
+
+		link_conf = rcu_dereference(vif->link_conf[link_id]);
+		if (WARN_ON_ONCE(!link_conf))
+			continue;
+
+		chandef = &link_conf->chanreq.oper;
+		if (!cfg80211_chandef_valid(chandef) || !link_conf->bss)
+			continue;
+
+		channel = ieee80211_frequency_to_channel(chandef->center_freq1);
+		phy_band = iwl_mvm_phy_band_from_nl80211(chandef->chan->band);
+		if (nla_put_u8(skb, IWL_MVM_VENDOR_ATTR_CHANNEL, channel) ||
+		    nla_put_u8(skb, IWL_MVM_VENDOR_ATTR_PHY_BAND, phy_band) ||
+		    nla_put_u8(skb, IWL_MVM_VENDOR_ATTR_RSSI,
+			       link_conf->bss->signal) ||
+		    nla_put_u32(skb, IWL_MVM_VENDOR_ATTR_WIPHY_FREQ,
+				chandef->chan->center_freq) ||
+		    nla_put_u32(skb, IWL_MVM_VENDOR_ATTR_CHANNEL_WIDTH,
+				chandef->width) ||
+		    nla_put_u32(skb, IWL_MVM_VENDOR_ATTR_CENTER_FREQ1,
+				chandef->center_freq1) ||
+		    (chandef->center_freq2 &&
+		     nla_put_u32(skb, IWL_MVM_VENDOR_ATTR_CENTER_FREQ2,
+				 chandef->center_freq2))) {
+			ret = -ENOBUFS;
+			break;
+		}
+	}
+
+	rcu_read_unlock();
+	return ret;
+}
+
+/*
+ * Calculate the response size based on the maximum number of active links.
+ * Each link requires 47 bytes, plus 4 bytes for the attribute header and an
+ * additional 20 bytes for potential future use.
+ */
+#define links_info_response_size(max_active_liks) ((max_active_liks) * 47 +\
+						   4 + 20)
+
+static int iwl_vendor_get_links_info(struct wiphy *wiphy,
+				     struct wireless_dev *wdev,
+				     const void *data, int data_len)
+{
+	struct ieee80211_vif *vif = wdev_to_ieee80211_vif(wdev);
+	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
+	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
+	struct nlattr *link_info_attr;
+	struct sk_buff *skb = NULL;
+	int resp_size;
+	int ret;
+
+	if (!vif)
+		return -ENODEV;
+
+	resp_size = links_info_response_size(iwl_mvm_max_active_links(mvm,
+								      vif));
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, resp_size);
+	if (!skb)
+		return -ENOMEM;
+
+	link_info_attr = nla_nest_start(skb, IWL_MVM_VENDOR_ATTR_LINKS_INFO);
+	if (!link_info_attr) {
+		ret = -ENOBUFS;
+		goto err;
+	}
+
+	ret = iwl_vendor_cmd_fill_links_info(vif, skb);
+	if (ret)
+		goto err;
+
+	nla_nest_end(skb, link_info_attr);
+	return cfg80211_vendor_cmd_reply(skb);
+
+err:
+	kfree_skb(skb);
+	return ret;
 }
 
 static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
@@ -1795,6 +1978,17 @@ static const struct wiphy_vendor_command iwl_mvm_vendor_commands[] = {
 	{
 		.info = {
 			.vendor_id = INTEL_OUI,
+			.subcmd = IWL_MVM_VENDOR_CMD_GET_LINK_INFO,
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
+			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.doit = iwl_vendor_get_links_info,
+		.policy = iwl_mvm_vendor_attr_policy,
+		.maxattr = MAX_IWL_MVM_VENDOR_ATTR,
+	},
+	{
+		.info = {
+			.vendor_id = INTEL_OUI,
 			.subcmd = IWL_MVM_VENDOR_CMD_HOST_GET_OWNERSHIP,
 		},
 		.doit = iwl_mvm_vendor_host_get_ownership,
@@ -1810,6 +2004,7 @@ enum iwl_mvm_vendor_events_idx {
 	IWL_MVM_VENDOR_EVENT_IDX_TSM_CFM,
 	IWL_MVM_VENDOR_EVENT_IDX_TSM_MSMT,
 	IWL_MVM_VENDOR_EVENT_IDX_ROAMING_FORBIDDEN = 4,
+	IWL_MVM_VENDOR_EVENT_IDX_LINK_INFO_CHANGED,
 	NUM_IWL_MVM_VENDOR_EVENT_IDX
 };
 
@@ -1822,6 +2017,10 @@ iwl_mvm_vendor_events[NUM_IWL_MVM_VENDOR_EVENT_IDX] = {
 	[IWL_MVM_VENDOR_EVENT_IDX_ROAMING_FORBIDDEN] = {
 		.vendor_id = INTEL_OUI,
 		.subcmd = IWL_MVM_VENDOR_CMD_ROAMING_FORBIDDEN_EVENT,
+	},
+	[IWL_MVM_VENDOR_EVENT_IDX_LINK_INFO_CHANGED] = {
+		.vendor_id = INTEL_OUI,
+		.subcmd = IWL_MVM_VENDOR_CMD_LINK_INFO_CHANGED_EVENT,
 	},
 };
 
@@ -2039,4 +2238,18 @@ void iwl_mvm_send_roaming_forbidden_event(struct iwl_mvm *mvm,
 
  nla_put_failure:
 	kfree_skb(msg);
+}
+
+void
+iwl_vendor_send_link_info_changed_event(struct iwl_mvm *mvm,
+					struct ieee80211_vif *vif)
+{
+	int event_idx = IWL_MVM_VENDOR_EVENT_IDX_LINK_INFO_CHANGED;
+	struct sk_buff *msg;
+
+	msg = cfg80211_vendor_event_alloc(mvm->hw->wiphy,
+					  ieee80211_vif_to_wdev(vif), 0,
+					  event_idx, GFP_ATOMIC);
+	if (msg)
+		cfg80211_vendor_event(msg, GFP_ATOMIC);
 }

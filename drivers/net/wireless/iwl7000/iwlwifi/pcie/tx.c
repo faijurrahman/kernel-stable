@@ -1815,20 +1815,27 @@ out:
  * iwl_pcie_get_sgt_tb_phys - Find TB address in mapped SG list
  * @sgt: scatter gather table
  * @offset: Offset into the mapped memory (i.e. SKB payload data)
+ * @len: Length of the area
  *
  * Find the DMA address that corresponds to the SKB payload data at the
  * position given by @offset.
  *
  * Returns: Address for TB entry
  */
-dma_addr_t iwl_pcie_get_sgt_tb_phys(struct sg_table *sgt, unsigned int offset)
+dma_addr_t iwl_pcie_get_sgt_tb_phys(struct sg_table *sgt, unsigned int offset,
+				    unsigned int len)
 {
 	struct scatterlist *sg;
 	unsigned int sg_offset = 0;
 	int i;
 
+	/*
+	 * Search the mapped DMA areas in the SG for the area that contains the
+	 * data at offset with the given length.
+	 */
 	for_each_sgtable_dma_sg(sgt, sg, i) {
-		if (offset >= sg_offset && offset < sg_offset + sg_dma_len(sg))
+		if (offset >= sg_offset &&
+		    offset + len <= sg_offset + sg_dma_len(sg))
 			return sg_dma_address(sg) + offset - sg_offset;
 
 		sg_offset += sg_dma_len(sg);
@@ -2004,7 +2011,7 @@ static int iwl_fill_data_tbs_amsdu(struct iwl_trans *trans, struct sk_buff *skb,
 						  data_left);
 			dma_addr_t tb_phys;
 
-			tb_phys = iwl_pcie_get_sgt_tb_phys(sgt, data_offset);
+			tb_phys = iwl_pcie_get_sgt_tb_phys(sgt, data_offset, size);
 			/* Not a real mapping error, use direct comparison */
 			if (unlikely(tb_phys == DMA_MAPPING_ERROR))
 				return -EINVAL;

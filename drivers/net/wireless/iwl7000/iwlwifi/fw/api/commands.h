@@ -149,8 +149,8 @@ enum iwl_legacy_cmds {
 	/**
 	 * @TX_CMD: uses &struct iwl_tx_cmd or &struct iwl_tx_cmd_gen2 or
 	 *	&struct iwl_tx_cmd_gen3,
-	 *	response in &struct iwl_mvm_tx_resp or
-	 *	&struct iwl_mvm_tx_resp_v3
+	 *	response in &struct iwl_tx_resp or
+	 *	&struct iwl_tx_resp_v3
 	 */
 	TX_CMD = 0x1c,
 
@@ -408,7 +408,7 @@ enum iwl_legacy_cmds {
 	REDUCE_TX_POWER_CMD = 0x9f,
 
 	/**
-	 * @MISSED_BEACONS_NOTIFICATION: &struct iwl_missed_beacons_notif
+	 * @MISSED_BEACONS_NOTIFICATION: &struct iwl_missed_beacons_notif_v4
 	 */
 	MISSED_BEACONS_NOTIFICATION = 0xa2,
 
@@ -620,7 +620,8 @@ enum iwl_system_subcmd_ids {
 	FW_ERROR_RECOVERY_CMD = 0x7,
 
 	/**
-	 * @RFI_CONFIG_CMD: &struct iwl_rfi_config_cmd
+	 * @RFI_CONFIG_CMD: &struct iwl_rfi_config_cmd_v3,
+	 *	&struct iwl_rfi_config_cmd
 	 */
 	RFI_CONFIG_CMD = 0xb,
 

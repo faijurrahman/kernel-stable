@@ -80,7 +80,7 @@ static int __init iwl_mvm_init(void)
 	if (ret)
 		pr_err("Unable to register MVM op_mode: %d\n", ret);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	iwl_mvm_vendor_cmd_init();
 #endif
 
@@ -92,7 +92,7 @@ static void __exit iwl_mvm_exit(void)
 {
 	iwl_opmode_deregister("iwlmvm");
 	iwl_mvm_rate_control_unregister();
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	iwl_mvm_vendor_cmd_exit();
 #endif
 }
@@ -180,6 +180,43 @@ static void iwl_mvm_rx_esr_mode_notif(struct iwl_mvm *mvm,
 	else
 		iwl_mvm_block_esr(mvm, vif, IWL_MVM_ESR_BLOCKED_FW,
 				  iwl_mvm_get_primary_link(vif));
+}
+
+static void iwl_mvm_rx_esr_trans_fail_notif(struct iwl_mvm *mvm,
+					    struct iwl_rx_cmd_buffer *rxb)
+{
+	struct iwl_rx_packet *pkt = rxb_addr(rxb);
+	struct iwl_esr_trans_fail_notif *notif = (void *)pkt->data;
+	struct ieee80211_vif *vif = iwl_mvm_get_bss_vif(mvm);
+	u8 fw_link_id = le32_to_cpu(notif->link_id);
+	struct ieee80211_bss_conf *bss_conf;
+
+	if (IS_ERR_OR_NULL(vif))
+		return;
+
+	IWL_DEBUG_INFO(mvm, "Failed to %s eSR on link %d, reason %d\n",
+		       le32_to_cpu(notif->activation) ? "enter" : "exit",
+		       le32_to_cpu(notif->link_id),
+		       le32_to_cpu(notif->err_code));
+
+	/* we couldn't go back to single link, disconnect */
+	if (!le32_to_cpu(notif->activation)) {
+		iwl_mvm_connection_loss(mvm, vif, "emlsr exit failed");
+		return;
+	}
+
+	bss_conf = iwl_mvm_rcu_fw_link_id_to_link_conf(mvm, fw_link_id, false);
+	if (IWL_FW_CHECK(mvm, !bss_conf,
+			 "FW reported failure to activate EMLSR on a non-existing link: %d\n",
+			 fw_link_id))
+		return;
+
+	/*
+	 * We failed to activate the second link and enter EMLSR, we need to go
+	 * back to single link.
+	 */
+	iwl_mvm_exit_esr(mvm, vif, IWL_MVM_ESR_EXIT_FAIL_ENTRY,
+			 bss_conf->link_id);
 }
 
 static void iwl_mvm_rx_monitor_notif(struct iwl_mvm *mvm,
@@ -284,6 +321,12 @@ static void iwl_mvm_rx_thermal_dual_chain_req(struct iwl_mvm *mvm,
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
 	struct iwl_thermal_dual_chain_request *req = (void *)pkt->data;
 
+	/* firmware is expected to handle that in RLC offload mode */
+	if (IWL_FW_CHECK(mvm, iwl_mvm_has_rlc_offload(mvm),
+			 "Got THERMAL_DUAL_CHAIN_REQUEST (0x%x) in RLC offload mode\n",
+			 req->event))
+		return;
+
 	/*
 	 * We could pass it to the iterator data, but also need to remember
 	 * it for new interfaces that are added while in this state.
@@ -348,7 +391,7 @@ struct iwl_rx_handlers {
  */
 static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 	RX_HANDLER(TX_CMD, iwl_mvm_rx_tx_cmd, RX_HANDLER_SYNC,
-		   struct iwl_mvm_tx_resp),
+		   struct iwl_tx_resp),
 	RX_HANDLER(BA_NOTIF, iwl_mvm_rx_ba_notif, RX_HANDLER_SYNC,
 		   struct iwl_mvm_ba_notif),
 
@@ -356,13 +399,13 @@ static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 		       iwl_mvm_tlc_update_notif, RX_HANDLER_SYNC,
 		       struct iwl_tlc_update_notif),
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	RX_HANDLER_GRP_NO_SIZE(LOCATION_GROUP, CSI_HEADER_NOTIFICATION,
 			       iwl_mvm_rx_csi_header, RX_HANDLER_ASYNC_LOCKED),
 	RX_HANDLER_GRP(LOCATION_GROUP, CSI_CHUNKS_NOTIFICATION,
 		       iwl_mvm_rx_csi_chunk, RX_HANDLER_ASYNC_LOCKED,
 		       struct iwl_csi_chunk_notification),
-#endif /* CPTCFG_IWLMVM_VENDOR_CMDS */
+#endif /* CPTCFG_IWL_VENDOR_CMDS */
 
 	RX_HANDLER(BT_PROFILE_NOTIFICATION, iwl_mvm_rx_bt_coex_old_notif,
 		   RX_HANDLER_ASYNC_LOCKED_WIPHY,
@@ -396,7 +439,7 @@ static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 		   RX_HANDLER_SYNC, struct iwl_time_event_notif),
 	RX_HANDLER_GRP(MAC_CONF_GROUP, SESSION_PROTECTION_NOTIF,
 		       iwl_mvm_rx_session_protect_notif, RX_HANDLER_SYNC,
-		       struct iwl_mvm_session_prot_notif),
+		       struct iwl_session_prot_notif),
 	RX_HANDLER(MCC_CHUB_UPDATE_CMD, iwl_mvm_rx_chub_update_mcc,
 		   RX_HANDLER_ASYNC_LOCKED, struct iwl_mcc_chub_notif),
 
@@ -419,10 +462,15 @@ static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 		   iwl_mvm_rx_umac_scan_iter_complete_notif, RX_HANDLER_SYNC,
 		   struct iwl_umac_scan_iter_complete_notif),
 
-	RX_HANDLER(MISSED_BEACONS_NOTIFICATION, iwl_mvm_rx_missed_beacons_notif,
+	RX_HANDLER(MISSED_BEACONS_NOTIFICATION,
+		   iwl_mvm_rx_missed_beacons_notif_legacy,
 		   RX_HANDLER_ASYNC_LOCKED_WIPHY,
-		   struct iwl_missed_beacons_notif),
+		   struct iwl_missed_beacons_notif_v4),
 
+	RX_HANDLER_GRP(MAC_CONF_GROUP, MISSED_BEACONS_NOTIF,
+		       iwl_mvm_rx_missed_beacons_notif,
+		       RX_HANDLER_ASYNC_LOCKED_WIPHY,
+		       struct iwl_missed_beacons_notif),
 	RX_HANDLER(REPLY_ERROR, iwl_mvm_rx_fw_error, RX_HANDLER_SYNC,
 		   struct iwl_error_resp),
 	RX_HANDLER(PSM_UAPSD_AP_MISBEHAVING_NOTIFICATION,
@@ -462,14 +510,14 @@ static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 	RX_HANDLER_GRP(DATA_PATH_GROUP, STA_PM_NOTIF,
 		       iwl_mvm_sta_pm_notif, RX_HANDLER_SYNC,
 		       struct iwl_mvm_pm_state_notification),
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	RX_HANDLER_GRP(NAN_GROUP, NAN_DISCOVERY_TERMINATE_NOTIF,
 		       iwl_mvm_nan_de_term_notif, RX_HANDLER_SYNC,
 		       struct iwl_nan_de_term),
 	RX_HANDLER_GRP(NAN_GROUP, NAN_DISCOVERY_EVENT_NOTIF,
 		       iwl_mvm_nan_match, RX_HANDLER_SYNC,
 		       struct iwl_nan_disc_evt_notify_v1),
-#endif /* CPTCFG_IWLMVM_VENDOR_CMDS */
+#endif /* CPTCFG_IWL_VENDOR_CMDS */
 	RX_HANDLER_GRP(MAC_CONF_GROUP, PROBE_RESPONSE_DATA_NOTIF,
 		       iwl_mvm_probe_resp_data_notif,
 		       RX_HANDLER_ASYNC_LOCKED,
@@ -516,6 +564,10 @@ static const struct iwl_rx_handlers iwl_mvm_rx_handlers[] = {
 	RX_HANDLER_GRP(SCAN_GROUP, CHANNEL_SURVEY_NOTIF,
 		       iwl_mvm_rx_channel_survey_notif, RX_HANDLER_ASYNC_LOCKED,
 		       struct iwl_umac_scan_channel_survey_notif),
+	RX_HANDLER_GRP(MAC_CONF_GROUP, EMLSR_TRANS_FAIL_NOTIF,
+		       iwl_mvm_rx_esr_trans_fail_notif,
+		       RX_HANDLER_ASYNC_LOCKED_WIPHY,
+		       struct iwl_esr_trans_fail_notif),
 };
 #undef RX_HANDLER
 #undef RX_HANDLER_GRP
@@ -647,6 +699,7 @@ static const struct iwl_hcmd_names iwl_mvm_mac_conf_names[] = {
 	HCMD_NAME(STA_REMOVE_CMD),
 	HCMD_NAME(STA_DISABLE_TX_CMD),
 	HCMD_NAME(ROC_CMD),
+	HCMD_NAME(EMLSR_TRANS_FAIL_NOTIF),
 	HCMD_NAME(ROC_NOTIF),
 	HCMD_NAME(CHANNEL_SWITCH_ERROR_NOTIF),
 	HCMD_NAME(MISSED_VAP_NOTIF),
@@ -1231,7 +1284,7 @@ static void iwl_mvm_mei_roaming_forbidden(void *priv, bool forbidden)
 	if (!mvm->hw_registered || !mvm->csme_vif)
 		return;
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	iwl_mvm_send_roaming_forbidden_event(mvm, mvm->csme_vif, forbidden);
 #endif
 }
@@ -1311,10 +1364,12 @@ static void iwl_mvm_trig_link_selection(struct wiphy *wiphy,
 	struct iwl_mvm *mvm =
 		container_of(wk, struct iwl_mvm, trig_link_selection_wk);
 
+	mutex_lock(&mvm->mutex);
 	ieee80211_iterate_active_interfaces(mvm->hw,
 					    IEEE80211_IFACE_ITER_NORMAL,
 					    iwl_mvm_find_link_selection_vif,
 					    NULL);
+	mutex_unlock(&mvm->mutex);
 }
 
 static struct iwl_op_mode *
@@ -1334,12 +1389,12 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	struct iwl_mvm_csme_conn_info *csme_conn_info __maybe_unused;
 
 	/*
-	 * We use IWL_MVM_STATION_COUNT_MAX to check the validity of the station
+	 * We use IWL_STATION_COUNT_MAX to check the validity of the station
 	 * index all over the driver - check that its value corresponds to the
 	 * array size.
 	 */
 	BUILD_BUG_ON(ARRAY_SIZE(mvm->fw_id_to_mac_id) !=
-		     IWL_MVM_STATION_COUNT_MAX);
+		     IWL_STATION_COUNT_MAX);
 
 	/********************************
 	 * 1. Allocating and configuring HW data
@@ -1406,6 +1461,7 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	mvm->fw_restart = iwlwifi_mod_params.fw_restart ? -1 : 0;
 	mvm->rfi_wlan_master = true;
 	mvm->bios_enable_rfi = iwl_mvm_eval_dsm_rfi(mvm);
+	mvm->bios_enable_puncturing = iwl_uefi_get_puncturing(&mvm->fwrt);
 
 	if (iwl_mvm_has_new_tx_api(mvm)) {
 		/*
@@ -1462,13 +1518,13 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 
 	init_waitqueue_head(&mvm->rx_sync_waitq);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	/*
 	 * by default capture all frame types
 	 * (but of course leave it disabled)
 	 */
 	mvm->csi_cfg.frame_types = ~0ULL;
-#endif /* CPTCFG_IWLMVM_VENDOR_CMDS */
+#endif /* CPTCFG_IWL_VENDOR_CMDS */
 
 	mvm->queue_sync_state = 0;
 
@@ -1480,13 +1536,13 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	mvm->tcm.ll_ts = jiffies;
 	mvm->tcm.uapsd_nonagg_ts = jiffies;
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	mvm->rx_filters = IWL_MVM_VENDOR_RXFILTER_EINVAL;
 #endif
 
 	INIT_DELAYED_WORK(&mvm->cs_tx_unblock_dwork, iwl_mvm_tx_unblock_dwork);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	/* set command/notification versions we care about */
 	mvm->cmd_ver.csi_notif =
 		iwl_fw_lookup_notif_ver(mvm->fw, LOCATION_GROUP,
@@ -1525,10 +1581,6 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 
 	trans_cfg.cb_data_offs = offsetof(struct ieee80211_tx_info,
 					  driver_data[2]);
-
-	/* Set a short watchdog for the command queue */
-	trans_cfg.cmd_q_wdg_timeout =
-		iwl_mvm_get_wd_timeout(mvm, NULL, false, true);
 
 	snprintf(mvm->hw->wiphy->fw_version,
 		 sizeof(mvm->hw->wiphy->fw_version),
@@ -1667,6 +1719,8 @@ void iwl_mvm_stop_device(struct iwl_mvm *mvm)
 
 	clear_bit(IWL_MVM_STATUS_FIRMWARE_RUNNING, &mvm->status);
 
+	iwl_mvm_pause_tcm(mvm, false);
+
 	iwl_fw_dbg_stop_sync(&mvm->fwrt);
 	iwl_trans_stop_device(mvm->trans);
 	iwl_free_fw_paging(&mvm->fwrt);
@@ -1723,13 +1777,13 @@ static void iwl_op_mode_mvm_stop(struct iwl_op_mode *op_mode)
 	kfree(mvm->error_recovery_buf);
 	mvm->error_recovery_buf = NULL;
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	kfree(mvm->mcast_active_filter_cmd);
 	mvm->mcast_active_filter_cmd = NULL;
 
 	if (mvm->hw_registered)
 		iwl_mvm_vendor_cmds_unregister(mvm);
-#endif /* CPTCFG_IWLMVM_VENDOR_CMDS */
+#endif /* CPTCFG_IWL_VENDOR_CMDS */
 
 	iwl_mvm_ptp_remove(mvm);
 
@@ -2180,9 +2234,6 @@ void iwl_mvm_nic_restart(struct iwl_mvm *mvm, bool fw_error)
 	 */
 	if (!mvm->fw_restart && fw_error) {
 		iwl_fw_error_collect(&mvm->fwrt, false);
-	} else if (test_bit(IWL_MVM_STATUS_STARTING,
-			    &mvm->status)) {
-		IWL_ERR(mvm, "Starting mac, retry will be triggered anyway\n");
 	} else if (test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status)) {
 		struct iwl_mvm_reprobe *reprobe;
 
@@ -2298,6 +2349,7 @@ static void iwl_op_mode_mvm_time_point(struct iwl_op_mode *op_mode,
 	iwl_dbg_tlv_time_point(&mvm->fwrt, tp_id, tp_data);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static void iwl_op_mode_mvm_device_powered_off(struct iwl_op_mode *op_mode)
 {
 	struct iwl_mvm *mvm = IWL_OP_MODE_GET_MVM(op_mode);
@@ -2309,6 +2361,10 @@ static void iwl_op_mode_mvm_device_powered_off(struct iwl_op_mode *op_mode)
 	mvm->fast_resume = false;
 	mutex_unlock(&mvm->mutex);
 }
+#else
+static void iwl_op_mode_mvm_device_powered_off(struct iwl_op_mode *op_mode)
+{}
+#endif
 
 #define IWL_MVM_COMMON_OPS					\
 	/* these could be differentiated */			\

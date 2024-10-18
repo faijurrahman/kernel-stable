@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
+ * Copyright (c) 2024 Synaptics Incorporated. All Rights Reserved.
  */
 
 #include <linux/module.h>
 
-#include <drm/drm_crtc_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_file.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
+#include <drm/drm_modeset_helper.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_print.h>
+#include <drm/drm_atomic_helper.h>
 
 #include "udl_drv.h"
 
@@ -129,6 +131,7 @@ static void udl_usb_disconnect(struct usb_interface *interface)
 	drm_kms_helper_poll_fini(dev);
 	udl_drop_usb(dev);
 	drm_dev_unplug(dev);
+	drm_atomic_helper_shutdown(dev);
 }
 
 /*

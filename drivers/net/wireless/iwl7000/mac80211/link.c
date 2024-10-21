@@ -36,6 +36,9 @@ void ieee80211_link_init(struct ieee80211_sub_if_data *sdata,
 	link->conf = link_conf;
 	link_conf->link_id = link_id;
 	link_conf->vif = &sdata->vif;
+	link->ap_power_level = IEEE80211_UNSET_POWER_LEVEL;
+	link->user_power_level = sdata->local->user_power_level;
+	link_conf->txpower = INT_MIN;
 
 	wiphy_work_init(&link->csa.finalize_work,
 			ieee80211_csa_finalize_work);
@@ -62,6 +65,8 @@ void ieee80211_link_stop(struct ieee80211_link_data *link)
 		ieee80211_mgd_stop_link(link);
 
 	cancel_delayed_work_sync(&link->color_collision_detect_work);
+	wiphy_work_cancel(link->sdata->local->hw.wiphy,
+			  &link->color_change_finalize_work);
 	wiphy_work_cancel(link->sdata->local->hw.wiphy,
 			  &link->csa.finalize_work);
 	ieee80211_link_release_channel(link);

@@ -437,7 +437,7 @@ iwl_mvm_update_mcc(struct iwl_mvm *mvm, const char *alpha2,
 
 	cmd.len[0] = sizeof(struct iwl_mcc_update_cmd);
 
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
+#ifdef CPTCFG_IWL_VENDOR_CMDS
 	if (mvm->trans->trans_cfg->device_family >
 		IWL_DEVICE_FAMILY_9000 &&
 	    src_id == MCC_SOURCE_MCC_API)
@@ -619,6 +619,7 @@ void iwl_mvm_rx_chub_update_mcc(struct iwl_mvm *mvm,
 	char mcc[3];
 	struct ieee80211_regdomain *regd;
 	int wgds_tbl_idx;
+	bool changed = false;
 
 	lockdep_assert_held(&mvm->mutex);
 
@@ -638,9 +639,14 @@ void iwl_mvm_rx_chub_update_mcc(struct iwl_mvm *mvm,
 	IWL_DEBUG_LAR(mvm,
 		      "RX: received chub update mcc cmd (mcc '%s' src %d)\n",
 		      mcc, src);
-	regd = iwl_mvm_get_regdomain(mvm->hw->wiphy, mcc, src, NULL);
+	regd = iwl_mvm_get_regdomain(mvm->hw->wiphy, mcc, src, &changed);
 	if (IS_ERR_OR_NULL(regd))
 		return;
+
+	if (!changed) {
+		IWL_DEBUG_LAR(mvm, "RX: No change in the regulatory data\n");
+		goto out;
+	}
 
 	wgds_tbl_idx = iwl_mvm_get_sar_geo_profile(mvm);
 	if (wgds_tbl_idx < 1)
@@ -652,5 +658,7 @@ void iwl_mvm_rx_chub_update_mcc(struct iwl_mvm *mvm,
 			       wgds_tbl_idx);
 
 	regulatory_set_wiphy_regd(mvm->hw->wiphy, regd);
+
+out:
 	kfree(regd);
 }

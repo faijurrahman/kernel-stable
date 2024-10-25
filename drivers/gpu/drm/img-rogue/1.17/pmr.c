@@ -821,7 +821,7 @@ _DeviceImportRegister(PMR *psPMR, PPVRSRV_DEVICE_NODE psDevNode)
 	PVR_ASSERT(PMR_DeviceNode(psPMR) != psDevNode);
 
 	/* Explicitly reject:
-	 * - PVRSRV_MEMALLOCFLAG_DEFER_PHYS_ALLOC
+	 * - PVRSRV_MEMALLOCFLAG_NO_OSPAGES_ON_ALLOC
 	 * - !PMR_FLAG_INTERNAL_NO_LAYOUT_CHANGE
 	 * as XD PMRs don't have support for
 	 * SUPPORT_PMR_PAGES_DEFERRED_FREE. */

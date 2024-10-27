@@ -6,9 +6,18 @@
 /dts-v1/;
 #include "mt8186-corsola-voltorb.dtsi"
 
+
 / {
+	/*
+	 * To distinguish between MT8186 and MT8186T, coreboot prepares different
+	 * UNPROVISIONED SKUs for them (MT8186: 0x7FFFFFFF, MT8186T: 0x7FFFFEFF).
+	 * Since Voltorb is based on MT8186T, it used the UNPROVISIONED SKU of
+	 * 0x7FFFFFFF. Therefore, support for the 0x7FFFFEFF SKU is added to ensure
+	 * compatibility with both the new version of coreboot and older versions.
+	 */
 	model = "Google Voltorb unprovisioned/sku589825 board";
 	compatible = "google,voltorb-sku2147483647", "google,voltorb-sku589825",
+		     "google,voltorb-sku2147483391",
 		     "google,voltorb", "mediatek,mt8186";
 };
 

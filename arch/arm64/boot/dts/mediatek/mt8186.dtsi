@@ -656,6 +656,13 @@
 		operating-points-v2 = <&cci_opp>;
 	};
 
+	fhctl: fhctl@1000ce00 {
+		compatible = "mediatek,mt8186-fhctl";
+		clocks = <&apmixedsys CLK_APMIXED_TVDPLL>;
+		reg = <0 0x1000ce00 0 0x200>;
+		status = "disabled";
+	};
+
 	soc {
 		#address-cells = <2>;
 		#size-cells = <2>;

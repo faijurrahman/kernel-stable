@@ -36,6 +36,7 @@
 
 #include "internal.h"
 
+#include <trace/events/cros_file.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/fs.h>
 
@@ -572,9 +573,12 @@ int chmod_common(const struct path *path, umode_t mode)
 	struct iattr newattrs;
 	int error;
 
+	trace_cros_chmod_common_enter(path, mode);
 	error = mnt_want_write(path->mnt);
-	if (error)
+	if (error) {
+		trace_cros_chmod_common_exit(path, mode, error);
 		return error;
+	}
 retry_deleg:
 	inode_lock(inode);
 	error = security_path_chmod(path, mode);
@@ -592,6 +596,7 @@ out_unlock:
 			goto retry_deleg;
 	}
 	mnt_drop_write(path->mnt);
+	trace_cros_chmod_common_exit(path, mode, error);
 	return error;
 }
 
@@ -651,6 +656,7 @@ int chown_common(const struct path *path, uid_t user, gid_t group)
 	struct iattr newattrs;
 	kuid_t uid;
 	kgid_t gid;
+	trace_cros_chown_common_enter(path, user, group);
 
 	uid = make_kuid(current_user_ns(), user);
 	gid = make_kgid(current_user_ns(), group);
@@ -663,14 +669,18 @@ int chown_common(const struct path *path, uid_t user, gid_t group)
 retry_deleg:
 	newattrs.ia_valid =  ATTR_CTIME;
 	if (user != (uid_t) -1) {
-		if (!uid_valid(uid))
+		if (!uid_valid(uid)) {
+			trace_cros_chown_common_exit(path, user, group, -EINVAL);
 			return -EINVAL;
+		}
 		newattrs.ia_valid |= ATTR_UID;
 		newattrs.ia_uid = uid;
 	}
 	if (group != (gid_t) -1) {
-		if (!gid_valid(gid))
+		if (!gid_valid(gid)) {
+			trace_cros_chown_common_exit(path, user, group, -EINVAL);
 			return -EINVAL;
+		}
 		newattrs.ia_valid |= ATTR_GID;
 		newattrs.ia_gid = gid;
 	}
@@ -688,6 +698,7 @@ retry_deleg:
 		if (!error)
 			goto retry_deleg;
 	}
+	trace_cros_chown_common_exit(path, user, group, error);
 	return error;
 }
 
@@ -1358,6 +1369,7 @@ int filp_close(struct file *filp, fl_owner_t id)
 
 	if (!file_count(filp)) {
 		printk(KERN_ERR "VFS: Close: file count is 0\n");
+		trace_cros_filp_close_exit(filp, id, 0);
 		return 0;
 	}
 
@@ -1369,6 +1381,7 @@ int filp_close(struct file *filp, fl_owner_t id)
 		locks_remove_posix(filp, id);
 	}
 	fput(filp);
+	trace_cros_filp_close_exit(filp, id, retval);
 	return retval;
 }
 

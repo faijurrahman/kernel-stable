@@ -1044,6 +1044,13 @@ DevmemValidateFlags(PMR *psPMR, PVRSRV_MEMALLOCFLAGS_T uiMapFlags)
 		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_INVALID_FLAGS, ErrorReturnError);
 	}
 
+	if ((uiMapFlags & PVRSRV_MEMALLOCFLAG_DEVICE_FLAGS_MASK) !=
+	    (uiPMRFlags & PVRSRV_MEMALLOCFLAG_DEVICE_FLAGS_MASK))
+	{
+		PVR_DPF((PVR_DBG_ERROR, "%s: PMR's device specific flags don't match mapping flags.", __func__));
+		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_INVALID_FLAGS, ErrorReturnError);
+	}
+
 ErrorReturnError:
 	return eError;
 }
@@ -1076,6 +1083,8 @@ DevmemXIntMapPages(DEVMEMXINT_RESERVATION *psRsrv,
 	                        "invalid flags", PVRSRV_ERROR_INVALID_FLAGS);
 	PVR_LOG_RETURN_IF_FALSE(!PMR_IsSparse(psPMR),
 		                    "PMR is Sparse, devmemx PMRs should be non-sparse", PVRSRV_ERROR_INVALID_FLAGS);
+	PVR_LOG_RETURN_IF_FALSE(!(PMR_Flags(psPMR) & PVRSRV_MEMALLOCFLAG_NO_OSPAGES_ON_ALLOC),
+		                    "PMR allocation is deferred, devmemx PMRs can not be deferred", PVRSRV_ERROR_INVALID_FLAGS);
 
 	if (uiLog2PageSize > PMR_GetLog2Contiguity(psPMR))
 	{

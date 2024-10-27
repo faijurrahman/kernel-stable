@@ -20,7 +20,7 @@
 	hx9023s@28 {
 		compatible = "tyhx,hx9023s";
 		reg = <0x28>;
-		interrupts-extended = <&pio 5 IRQ_TYPE_LEVEL_LOW>;
+		interrupts-extended = <&pio 5 IRQ_TYPE_EDGE_FALLING>;
 
 		#address-cells = <1>;
 		#size-cells = <0>;

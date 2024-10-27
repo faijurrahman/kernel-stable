@@ -81,6 +81,7 @@ struct ipv6_devconf {
 	__u32		ioam6_id;
 	__u32		ioam6_id_wide;
 	__u8		ioam6_enabled;
+	__u8		ra_honor_pio_pflag;
 
 	struct ctl_table_header *sysctl_header;
 };

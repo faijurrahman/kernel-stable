@@ -7,7 +7,15 @@
 #include "mt8186-corsola-squirtle.dtsi"
 
 / {
+	/*
+	 * To distinguish between MT8186 and MT8186T, coreboot prepares different
+	 * UNPROVISIONED SKUs for them (MT8186: 0x7FFFFFFF, MT8186T: 0x7FFFFEFF).
+	 * Since Squirtle is based on MT8186T, it used the UNPROVISIONED SKU of
+	 * 0x7FFFFFFF. Therefore, support for the 0x7FFFFEFF SKU is added to ensure
+	 * compatibility with both the new version of coreboot and older versions.
+	 */
 	model = "Google squirtle sku0/unprovisioned board";
 	compatible = "google,squirtle-sku0","google,squirtle-sku2147483647",
+		     "google,squirtle-sku2147483391",
 		     "google,squirtle","mediatek,mt8186";
 };

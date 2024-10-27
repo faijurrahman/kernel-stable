@@ -8,6 +8,8 @@
 #include <linux/compat.h>
 #include <asm/unistd.h>
 
+#include <trace/events/cros_file.h>
+
 static bool nsec_valid(long nsec)
 {
 	if (nsec == UTIME_OMIT || nsec == UTIME_NOW)
@@ -23,10 +25,13 @@ int vfs_utimes(const struct path *path, struct timespec64 *times)
 	struct inode *inode = path->dentry->d_inode;
 	struct inode *delegated_inode = NULL;
 
+	trace_cros_vfs_utimes_enter(path, times);
 	if (times) {
 		if (!nsec_valid(times[0].tv_nsec) ||
-		    !nsec_valid(times[1].tv_nsec))
+		    !nsec_valid(times[1].tv_nsec)) {
+			trace_cros_vfs_utimes_exit(path, times, -EINVAL);
 			return -EINVAL;
+		}
 		if (times[0].tv_nsec == UTIME_NOW &&
 		    times[1].tv_nsec == UTIME_NOW)
 			times = NULL;
@@ -73,6 +78,7 @@ retry_deleg:
 
 	mnt_drop_write(path->mnt);
 out:
+	trace_cros_vfs_utimes_exit(path, times, error);
 	return error;
 }
 

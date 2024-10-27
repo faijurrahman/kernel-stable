@@ -95,7 +95,7 @@ static PVRSRV_ERROR ConnectionDataDestroy(CONNECTION_DATA *psConnection)
 
 	if (psProcessHandleBase != NULL)
 	{
-		eError = PVRSRVReleaseProcessHandleBase(psProcessHandleBase, psConnection->pid,
+		eError = PVRSRVReleaseProcessHandleBase(psProcessHandleBase,
 		                                        ui64MaxBridgeTime);
 		PVR_LOG_RETURN_IF_ERROR(eError, "PVRSRVReleaseProcessHandleBase");
 
@@ -231,8 +231,8 @@ PVRSRV_ERROR PVRSRVCommonConnectionConnect(void **ppvPrivData, void *pvOSData)
 	                               PVRSRV_HANDLE_BASE_TYPE_CONNECTION);
 	PVR_LOG_GOTO_IF_ERROR(eError, "PVRSRVAllocHandleBase", failure);
 
-	/* get process handle base (if it doesn't exist it will be allocated) */
-	eError = PVRSRVAcquireProcessHandleBase(psConnection->pid, &psProcessHandleBase);
+	/* get process handle base for the current process (if it doesn't exist it will be allocated) */
+	eError = PVRSRVAcquireProcessHandleBase(&psProcessHandleBase);
 	PVR_LOG_GOTO_IF_ERROR(eError, "PVRSRVAcquireProcessHandleBase", failure);
 
 	/* hConnectionsLock now resides in PVRSRV_DEVICE_NODE */

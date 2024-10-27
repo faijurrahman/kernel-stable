@@ -413,6 +413,13 @@ static inline void backport_led_trigger_blink(struct led_trigger *trigger,
 #define __cleanup(func) __attribute__((__cleanup__(func)))
 #endif
 
+static inline u32
+iwl7000_ieee80211_mandatory_rates(struct ieee80211_supported_band *sband)
+{
+	return ieee80211_mandatory_rates(sband, NL80211_BSS_CHAN_WIDTH_20);
+}
+#define ieee80211_mandatory_rates iwl7000_ieee80211_mandatory_rates
+
 void ieee80211_fragment_element(struct sk_buff *skb, u8 *len_pos, u8 frag_id);
 
 static inline void
@@ -465,12 +472,6 @@ WRAP_LOCKED(cfg80211_links_removed)(struct net_device *dev, u16 removed_links)
 	mutex_unlock(&dev->ieee80211_ptr->mtx);
 }
 #define cfg80211_links_removed WRAP_LOCKED(cfg80211_links_removed)
-static inline u32
-iwl7000_ieee80211_mandatory_rates(struct ieee80211_supported_band *sband)
-{
-	return ieee80211_mandatory_rates(sband, NL80211_BSS_CHAN_WIDTH_20);
-}
-#define ieee80211_mandatory_rates iwl7000_ieee80211_mandatory_rates
 
 static inline bool LINUX_BACKPORT(napi_schedule)(struct napi_struct *n)
 {

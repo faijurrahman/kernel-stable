@@ -36,6 +36,10 @@
 #include <trace/events/cros_file.h>
 #undef CREATE_TRACE_POINTS
 
+#ifdef __aarch64__
+#include <trace/events/cros_net.h>
+#endif
+
 /* How many LSMs were built into the kernel? */
 #define LSM_COUNT (__end_lsm_info - __start_lsm_info)
 
@@ -2246,6 +2250,9 @@ int security_socket_create(int family, int type, int protocol, int kern)
 int security_socket_post_create(struct socket *sock, int family,
 				int type, int protocol, int kern)
 {
+#ifdef __aarch64__
+	trace_cros_security_socket_post_create_enter(sock, family, type, protocol, kern);
+#endif
 	return call_int_hook(socket_post_create, 0, sock, family, type,
 						protocol, kern);
 }

@@ -5363,7 +5363,7 @@ out_reassign:
 
 out_restart:
 	/* things keep failing, better restart the hw */
-	iwl_mvm_nic_restart(mvm);
+	iwl_mvm_nic_restart(mvm, false);
 	return ret;
 }
 
@@ -5399,7 +5399,7 @@ out_reassign:
 
 out_restart:
 	/* things keep failing, better restart the hw */
-	iwl_mvm_nic_restart(mvm);
+	iwl_mvm_nic_restart(mvm, false);
 	return ret;
 }
 

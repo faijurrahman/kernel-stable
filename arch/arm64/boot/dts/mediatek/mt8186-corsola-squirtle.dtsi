@@ -57,6 +57,7 @@
 		compatible = "realtek,rt5650";
 		reg = <0x1a>;
 		avdd-supply = <&mt6366_vio18_reg>;
+		cpvdd-supply = <&mt6366_vio18_reg>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&rt1019p_pins_default>;
 		cbj-sleeve-gpio = <&pio 150 GPIO_ACTIVE_HIGH>;

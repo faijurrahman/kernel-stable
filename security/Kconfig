@@ -19,38 +19,6 @@ config SECURITY_DMESG_RESTRICT
 
 	  If you are unsure how to answer this question, answer N.
 
-choice
-	prompt "Allow /proc/pid/mem access override"
-	default PROC_MEM_ALWAYS_FORCE
-	help
-	  Traditionally /proc/pid/mem allows users to override memory
-	  permissions for users like ptrace, assuming they have ptrace
-	  capability.
-
-	  This allows people to limit that - either never override, or
-	  require actual active ptrace attachment.
-
-	  Defaults to the traditional behavior (for now)
-
-config PROC_MEM_ALWAYS_FORCE
-	bool "Traditional /proc/pid/mem behavior"
-	help
-	  This allows /proc/pid/mem accesses to override memory mapping
-	  permissions if you have ptrace access rights.
-
-config PROC_MEM_FORCE_PTRACE
-	bool "Require active ptrace() use for access override"
-	help
-	  This allows /proc/pid/mem accesses to override memory mapping
-	  permissions for active ptracers like gdb.
-
-config PROC_MEM_NO_FORCE
-	bool "Never"
-	help
-	  Never override memory mapping permissions
-
-endchoice
-
 config SECURITY
 	bool "Enable different security models"
 	depends on SYSFS
@@ -250,6 +218,37 @@ config STATIC_USERMODEHELPER_PATH
 
 	  If you wish for all usermode helper programs to be disabled,
 	  specify an empty string here (i.e. "").
+
+choice
+	prompt "Restrict /proc/pid/mem FOLL_FORCE usage"
+	default PROC_MEM_RESTRICT_FOLL_FORCE_OFF
+	help
+	  Reading and writing of /proc/pid/mem bypasses memory permission
+	  checks due to the internal use of the FOLL_FORCE flag. This can be
+	  used by attackers to manipulate process memory contents that would
+	  have been otherwise protected. However, debuggers, like GDB, use
+	  this to set breakpoints, etc. To force debuggers to fall back to
+	  PEEK/POKE, see PROC_MEM_RESTRICT_OPEN_WRITE_ALL.
+
+	config PROC_MEM_RESTRICT_FOLL_FORCE_OFF
+	bool "Do not restrict FOLL_FORCE usage with /proc/pid/mem (regular)"
+	help
+	  Regular behavior: continue to use the FOLL_FORCE flag for
+	  /proc/pid/mem access.
+
+	config PROC_MEM_RESTRICT_FOLL_FORCE_PTRACE
+	bool "Only allow ptracers to use FOLL_FORCE with /proc/pid/mem (safer)"
+	help
+	  Only use the FOLL_FORCE flag for /proc/pid/mem access when the
+	  current task is the active ptracer of the target task. (Safer,
+	  least disruptive to most usage patterns.)
+
+	config PROC_MEM_RESTRICT_FOLL_FORCE_ALL
+	bool "Do not use FOLL_FORCE with /proc/pid/mem (safest)"
+	help
+	  Remove the FOLL_FORCE flag for all /proc/pid/mem accesses.
+	  (Safest, but may be disruptive to some usage patterns.)
+endchoice
 
 choice
 	prompt "Restrict /proc/pid/mem OPEN_READ usage"

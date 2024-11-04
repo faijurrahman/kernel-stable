@@ -2518,8 +2518,15 @@ static int nvme_pci_enable(struct nvme_dev *dev)
 	else
 		dev->io_sqes = NVME_NVM_IOSQES;
 
-	if (dev->ctrl.quirks & NVME_QUIRK_QDEPTH_ONE) {
+	/*
+	 * Temporary fix for the Apple controller found in the MacBook8,1 and
+	 * some MacBook7,1 to avoid controller resets and data loss.
+	 */
+	if (pdev->vendor == PCI_VENDOR_ID_APPLE && pdev->device == 0x2001) {
 		dev->q_depth = 2;
+		dev_warn(dev->ctrl.device, "detected Apple NVMe controller, "
+			"set queue depth=%u to work around controller resets\n",
+			dev->q_depth);
 	} else if (pdev->vendor == PCI_VENDOR_ID_SAMSUNG &&
 		   (pdev->device == 0xa821 || pdev->device == 0xa822) &&
 		   NVME_CAP_MQES(dev->ctrl.cap) == 0) {
@@ -3474,12 +3481,7 @@ static const struct pci_device_id nvme_id_table[] = {
 		.driver_data = NVME_QUIRK_DISABLE_WRITE_ZEROES, },
 	{ PCI_DEVICE_CLASS(PCI_CLASS_STORAGE_EXPRESS, 0xffffff) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2001),
-		/*
-		 * Fix for the Apple controller found in the MacBook8,1 and
-		 * some MacBook7,1 to avoid controller resets and data loss.
-		 */
-		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
-				NVME_QUIRK_QDEPTH_ONE },
+		.driver_data = NVME_QUIRK_SINGLE_VECTOR },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2005),
 		.driver_data = NVME_QUIRK_SINGLE_VECTOR |

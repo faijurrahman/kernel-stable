@@ -216,9 +216,6 @@ static inline enum cp_reason_type need_do_checkpoint(struct inode *inode)
 		f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,
 							TRANS_DIR_INO))
 		cp_reason = CP_RECOVER_DIR;
-	else if (f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,
-							XATTR_DIR_INO))
-		cp_reason = CP_XATTR_DIR;
 
 	return cp_reason;
 }
@@ -2010,9 +2007,6 @@ static int f2fs_ioc_start_atomic_write(struct file *filp)
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	int ret;
 
-	if (!(filp->f_mode & FMODE_WRITE))
-		return -EBADF;
-
 	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EACCES;
 
@@ -2083,9 +2077,6 @@ static int f2fs_ioc_commit_atomic_write(struct file *filp)
 	struct inode *inode = file_inode(filp);
 	int ret;
 
-	if (!(filp->f_mode & FMODE_WRITE))
-		return -EBADF;
-
 	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EACCES;
 
@@ -2128,9 +2119,6 @@ static int f2fs_ioc_start_volatile_write(struct file *filp)
 	struct inode *inode = file_inode(filp);
 	int ret;
 
-	if (!(filp->f_mode & FMODE_WRITE))
-		return -EBADF;
-
 	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EACCES;
 
@@ -2166,9 +2154,6 @@ static int f2fs_ioc_release_volatile_write(struct file *filp)
 	struct inode *inode = file_inode(filp);
 	int ret;
 
-	if (!(filp->f_mode & FMODE_WRITE))
-		return -EBADF;
-
 	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EACCES;
 
@@ -2197,9 +2182,6 @@ static int f2fs_ioc_abort_volatile_write(struct file *filp)
 {
 	struct inode *inode = file_inode(filp);
 	int ret;
-
-	if (!(filp->f_mode & FMODE_WRITE))
-		return -EBADF;
 
 	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EACCES;
@@ -2594,19 +2576,16 @@ static int f2fs_defragment_range(struct f2fs_sb_info *sbi,
 	bool fragmented = false;
 	int err;
 
+	/* if in-place-update policy is enabled, don't waste time here */
+	if (f2fs_should_update_inplace(inode, NULL))
+		return -EINVAL;
+
 	pg_start = range->start >> PAGE_SHIFT;
 	pg_end = (range->start + range->len) >> PAGE_SHIFT;
 
 	f2fs_balance_fs(sbi, true);
 
 	inode_lock(inode);
-
-	/* if in-place-update policy is enabled, don't waste time here */
-	set_inode_flag(inode, FI_OPU_WRITE);
-	if (f2fs_should_update_inplace(inode, NULL)) {
-		err = -EINVAL;
-		goto out;
-	}
 
 	/* writeback all dirty pages in the range */
 	err = filemap_write_and_wait_range(inode->i_mapping, range->start,
@@ -2689,7 +2668,7 @@ do_map:
 			goto check;
 		}
 
-		set_inode_flag(inode, FI_SKIP_WRITES);
+		set_inode_flag(inode, FI_DO_DEFRAG);
 
 		idx = map.m_lblk;
 		while (idx < map.m_lblk + map.m_len && cnt < blk_per_seg) {
@@ -2700,8 +2679,6 @@ do_map:
 				err = PTR_ERR(page);
 				goto clear_out;
 			}
-
-			f2fs_wait_on_page_writeback(page, DATA, true, true);
 
 			set_page_dirty(page);
 			set_page_private_gcing(page);
@@ -2717,16 +2694,15 @@ check:
 		if (map.m_lblk < pg_end && cnt < blk_per_seg)
 			goto do_map;
 
-		clear_inode_flag(inode, FI_SKIP_WRITES);
+		clear_inode_flag(inode, FI_DO_DEFRAG);
 
 		err = filemap_fdatawrite(inode->i_mapping);
 		if (err)
 			goto out;
 	}
 clear_out:
-	clear_inode_flag(inode, FI_SKIP_WRITES);
+	clear_inode_flag(inode, FI_DO_DEFRAG);
 out:
-	clear_inode_flag(inode, FI_OPU_WRITE);
 	inode_unlock(inode);
 	if (!err)
 		range->len = (u64)total << PAGE_SHIFT;
@@ -4032,12 +4008,10 @@ static int redirty_blocks(struct inode *inode, pgoff_t page_idx, int len)
 
 	for (i = 0; i < page_len; i++, redirty_idx++) {
 		page = find_lock_page(mapping, redirty_idx);
-
-		/* It will never fail, when page has pinned above */
-		f2fs_bug_on(F2FS_I_SB(inode), !page);
-
-		f2fs_wait_on_page_writeback(page, DATA, true, true);
-
+		if (!page) {
+			ret = -ENOMEM;
+			break;
+		}
 		set_page_dirty(page);
 		set_page_private_gcing(page);
 		f2fs_put_page(page, 1);

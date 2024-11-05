@@ -832,16 +832,14 @@ struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq)
  *
  * Which allows an EDF like search on (sub)trees.
  */
-static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
+static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 {
 	struct rb_node *node = cfs_rq->tasks_timeline.rb_root.rb_node;
 	struct sched_entity *curr = cfs_rq->curr;
 	struct sched_entity *best = NULL;
-	struct sched_entity *best_left = NULL;
 
 	if (curr && (!curr->on_rq || !entity_eligible(cfs_rq, curr)))
 		curr = NULL;
-	best = curr;
 
 	/*
 	 * Once selected, run a task until it either becomes non-eligible or
@@ -862,75 +860,33 @@ static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
 		}
 
 		/*
-		 * Now we heap search eligible trees for the best (min_)deadline
+		 * If this entity has an earlier deadline than the previous
+		 * best, take this one. If it also has the earliest deadline
+		 * of its subtree, we're done.
 		 */
-		if (!best || deadline_gt(deadline, best, se))
+		if (!best || deadline_gt(deadline, best, se)) {
 			best = se;
-
-		/*
-		 * Every se in a left branch is eligible, keep track of the
-		 * branch with the best min_deadline
-		 */
-		if (node->rb_left) {
-			struct sched_entity *left = __node_2_se(node->rb_left);
-
-			if (!best_left || deadline_gt(min_deadline, best_left, left))
-				best_left = left;
-
-			/*
-			 * min_deadline is in the left branch. rb_left and all
-			 * descendants are eligible, so immediately switch to the second
-			 * loop.
-			 */
-			if (left->min_deadline == se->min_deadline)
+			if (best->deadline == best->min_deadline)
 				break;
 		}
 
-		/* min_deadline is at this node, no need to look right */
-		if (se->deadline == se->min_deadline)
-			break;
-
-		/* else min_deadline is in the right branch. */
-		node = node->rb_right;
-	}
-
-	/*
-	 * We ran into an eligible node which is itself the best.
-	 * (Or nr_running == 0 and both are NULL)
-	 */
-	if (!best_left || (s64)(best_left->min_deadline - best->deadline) > 0)
-		return best;
-
-	/*
-	 * Now best_left and all of its children are eligible, and we are just
-	 * looking for deadline == min_deadline
-	 */
-	node = &best_left->run_node;
-	while (node) {
-		struct sched_entity *se = __node_2_se(node);
-
-		/* min_deadline is the current node */
-		if (se->deadline == se->min_deadline)
-			return se;
-
-		/* min_deadline is in the left branch */
+		/*
+		 * If the earlest deadline in this subtree is in the fully
+		 * eligible left half of our space, go there.
+		 */
 		if (node->rb_left &&
 		    __node_2_se(node->rb_left)->min_deadline == se->min_deadline) {
 			node = node->rb_left;
 			continue;
 		}
 
-		/* else min_deadline is in the right branch */
 		node = node->rb_right;
 	}
-	return NULL;
-}
 
-static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
-{
-	struct sched_entity *se = __pick_eevdf(cfs_rq);
+	if (!best || (curr && deadline_gt(deadline, best, curr)))
+		best = curr;
 
-	if (!se) {
+	if (unlikely(!best)) {
 		struct sched_entity *left = __pick_first_entity(cfs_rq);
 		if (left) {
 			pr_err("EEVDF scheduling fail, picking leftmost\n");
@@ -938,7 +894,7 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 		}
 	}
 
-	return se;
+	return best;
 }
 
 #ifdef CONFIG_SCHED_DEBUG

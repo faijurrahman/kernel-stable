@@ -444,6 +444,8 @@ struct msdc_host {
 	u32 timeout_ns;		/* data timeout ns */
 	u32 timeout_clks;	/* data timeout clks */
 
+	u32 sdio_log_cnt;
+
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_default;
 	struct pinctrl_state *pins_uhs;
@@ -1135,11 +1137,22 @@ static void msdc_recheck_sdio_irq(struct msdc_host *host)
 static void msdc_track_cmd_data(struct msdc_host *host,
 				struct mmc_command *cmd, struct mmc_data *data)
 {
+	struct mmc_host *mmc = mmc_from_priv(host);
 	if (host->error &&
 	    ((!mmc_op_tuning(cmd->opcode)) ||
-	     cmd->error == -ETIMEDOUT))
+	     cmd->error == -ETIMEDOUT)) {
+		/* TODO(b:378126230): Remove when done debugging.
+		 * Count from mmc_sdio_init_card()
+		 */
+		if (mmc->card && mmc_card_sdio(mmc->card)) {
+			if (host->sdio_log_cnt > 300)
+				return;
+			host->sdio_log_cnt++;
+		}
+
 		dev_warn(host->dev, "%s: cmd=%d arg=%08X; host->error=0x%08X\n",
 			 __func__, cmd->opcode, cmd->arg, host->error);
+	}
 }
 
 static void msdc_request_done(struct msdc_host *host, struct mmc_request *mrq)

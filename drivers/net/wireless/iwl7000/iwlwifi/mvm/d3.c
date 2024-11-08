@@ -3099,13 +3099,16 @@ static void iwl_mvm_d3_disconnect_iter(void *data, u8 *mac,
 		ieee80211_resume_disconnect(vif);
 }
 
-static bool iwl_mvm_check_rt_status(struct iwl_mvm *mvm,
-				   struct ieee80211_vif *vif,
-				   bool *error)
+enum rt_status {
+	FW_ALIVE,
+	FW_NEEDS_RESET,
+	FW_ERROR,
+};
+
+static enum rt_status iwl_mvm_check_rt_status(struct iwl_mvm *mvm,
+					      struct ieee80211_vif *vif)
 {
 	u32 err_id;
-
-	*error = true;
 
 	/* check for lmac1 error */
 	if (iwl_fwrt_read_err_table(mvm->trans,
@@ -3122,25 +3125,24 @@ static bool iwl_mvm_check_rt_status(struct iwl_mvm *mvm,
 							       GFP_KERNEL);
 			}
 
-			*error = false;
+			return FW_NEEDS_RESET;
 		}
-		return true;
+		return FW_ERROR;
 	}
 
 	/* check if we have lmac2 set and check for error */
 	if (iwl_fwrt_read_err_table(mvm->trans,
 				    mvm->trans->dbg.lmac_error_event_table[1],
 				    NULL))
-		return true;
+		return FW_ERROR;
 
 	/* check for umac error */
 	if (iwl_fwrt_read_err_table(mvm->trans,
 				    mvm->trans->dbg.umac_error_event_table,
 				    NULL))
-		return true;
+		return FW_ERROR;
 
-	*error = false;
-	return false;
+	return FW_ALIVE;
 }
 
 /*
@@ -3509,8 +3511,8 @@ static int __iwl_mvm_resume(struct iwl_mvm *mvm, bool test)
 	bool d0i3_first = fw_has_capa(&mvm->fw->ucode_capa,
 				      IWL_UCODE_TLV_CAPA_D0I3_END_FIRST);
 	bool resume_notif_based = iwl_mvm_d3_resume_notif_based(mvm);
+	enum rt_status rt_status;
 	bool keep = false;
-	bool error;
 
 	mutex_lock(&mvm->mutex);
 
@@ -3533,9 +3535,10 @@ static int __iwl_mvm_resume(struct iwl_mvm *mvm, bool test)
 
 	iwl_fw_dbg_read_d3_debug_data(&mvm->fwrt);
 
-	if (iwl_mvm_check_rt_status(mvm, vif, &error)) {
+	rt_status = iwl_mvm_check_rt_status(mvm, vif);
+	if (rt_status != FW_ALIVE) {
 		set_bit(STATUS_FW_ERROR, &mvm->trans->status);
-		if (error) {
+		if (rt_status == FW_ERROR) {
 			IWL_ERR(mvm,
 				"FW Error occurred during suspend. Restarting.\n");
 			iwl_mvm_dump_nic_error_log(mvm);
@@ -3702,7 +3705,7 @@ int iwl_mvm_fast_resume(struct iwl_mvm *mvm)
 		.notif_expected =
 			IWL_D3_NOTIF_D3_END_NOTIF,
 	};
-	bool error;
+	enum rt_status rt_status;
 	int ret;
 
 	lockdep_assert_held(&mvm->mutex);
@@ -3712,9 +3715,10 @@ int iwl_mvm_fast_resume(struct iwl_mvm *mvm)
 	mvm->last_reset_or_resume_time_jiffies = jiffies;
 	iwl_fw_dbg_read_d3_debug_data(&mvm->fwrt);
 
-	if (iwl_mvm_check_rt_status(mvm, NULL, &error)) {
+	rt_status = iwl_mvm_check_rt_status(mvm, NULL);
+	if (rt_status != FW_ALIVE) {
 		set_bit(STATUS_FW_ERROR, &mvm->trans->status);
-		if (error) {
+		if (rt_status == FW_ERROR) {
 			IWL_ERR(mvm,
 				"FW Error occurred during suspend. Restarting.\n");
 			iwl_mvm_dump_nic_error_log(mvm);

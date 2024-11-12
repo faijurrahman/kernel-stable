@@ -36,7 +36,9 @@
 #include "pnode.h"
 #include "internal.h"
 
+#ifdef __aarch64__
 #include <trace/events/cros_file.h>
+#endif
 
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
@@ -1761,8 +1763,9 @@ int path_umount(struct path *path, int flags)
 {
 	struct mount *mnt = real_mount(path->mnt);
 	int ret;
-
+#ifdef __aarch64__
 	trace_cros_path_umount_entry(path, flags);
+#endif
 	ret = can_umount(path, flags);
 	if (!ret)
 		ret = do_umount(mnt, flags);
@@ -1770,7 +1773,9 @@ int path_umount(struct path *path, int flags)
 	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
 	dput(path->dentry);
 	mntput_no_expire(mnt);
+#ifdef __aarch64__
 	trace_cros_path_umount_exit(path, flags, ret);
+#endif
 	return ret;
 }
 
@@ -3289,17 +3294,23 @@ int path_mount(const char *dev_name, struct path *path,
 		((char *)data_page)[PAGE_SIZE - 1] = 0;
 
 	if (flags & MS_NOUSER) {
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EINVAL);
+#endif
 		return -EINVAL;
 	}
 
 	ret = security_sb_mount(dev_name, path, type_page, flags, data_page);
 	if (ret) {
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EPERM);
+#endif
 		return ret;
 		}
 	if (!may_mount()) {
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, -EPERM);
+#endif
 		return -EPERM;
 	}
 	if (flags & SB_MANDLOCK)
@@ -3364,33 +3375,45 @@ int path_mount(const char *dev_name, struct path *path,
 
 	if ((flags & (MS_REMOUNT | MS_BIND)) == (MS_REMOUNT | MS_BIND)) {
 		ret = do_reconfigure_mnt(path, mnt_flags);
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 		return ret;
 	}
 	if (flags & MS_REMOUNT) {
 		ret = do_remount(path, flags, sb_flags, mnt_flags, data_page);
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 		return ret;
 	}
 	if (flags & MS_BIND) {
 		ret = do_loopback(path, dev_name, flags & MS_REC);
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 		return ret;
 	}
 	if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)) {
 		ret = do_change_type(path, flags);
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 		return ret;
 	}
 	if (flags & MS_MOVE) {
 		ret = do_move_mount_old(path, dev_name);
+#ifdef __aarch64__
 		trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 		return ret;
 	}
 
 	ret = do_new_mount(path, type_page, sb_flags, mnt_flags, dev_name,
 			    data_page);
+#ifdef __aarch64__
 	trace_cros_path_mount_exit(dev_name, path, type_page, flags, data_page, ret);
+#endif
 	return ret;
 }
 

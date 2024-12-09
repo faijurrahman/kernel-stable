@@ -795,11 +795,8 @@ iwl_nvm_fixup_sband_iftd(struct iwl_trans *trans,
 {
 	bool is_ap = iftype_data->types_mask & (BIT(NL80211_IFTYPE_AP) |
 						BIT(NL80211_IFTYPE_P2P_GO));
-	bool no_320;
-
-	no_320 = (!trans->trans_cfg->integrated &&
-		 trans->pcie_link_speed < PCI_EXP_LNKSTA_CLS_8_0GB) ||
-		 trans->reduced_cap_sku;
+	bool slow_pcie = (!trans->trans_cfg->integrated &&
+			  trans->pcie_link_speed < PCI_EXP_LNKSTA_CLS_8_0GB);
 
 	if (!data->sku_cap_11be_enable || iwlwifi_mod_params.disable_11be)
 		{}
@@ -823,7 +820,7 @@ iwl_nvm_fixup_sband_iftd(struct iwl_trans *trans,
 			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G;
 		break;
 	case NL80211_BAND_6GHZ:
-		if (!no_320) {
+		if (!trans->reduced_cap_sku) {
 		}
 		fallthrough;
 	case NL80211_BAND_5GHZ:
@@ -845,6 +842,14 @@ iwl_nvm_fixup_sband_iftd(struct iwl_trans *trans,
 		if (!is_ap) {
 			iftype_data->he_cap.he_cap_elem.phy_cap_info[7] |=
 				IEEE80211_HE_PHY_CAP7_MAX_NC_2;
+		}
+
+		if (slow_pcie) {
+			struct ieee80211_eht_mcs_nss_supp *mcs_nss =
+				NULL;
+
+			mcs_nss->bw._320.rx_tx_mcs11_max_nss = 0;
+			mcs_nss->bw._320.rx_tx_mcs13_max_nss = 0;
 		}
 	} else {
 		struct ieee80211_he_mcs_nss_supp *he_mcs_nss_supp =

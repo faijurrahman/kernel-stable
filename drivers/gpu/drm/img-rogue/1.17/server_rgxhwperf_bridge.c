@@ -66,7 +66,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * Server-side bridge entry points
  */
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXCtrlHWPerf(IMG_UINT32 ui32DispatchTableEntry,
 			  IMG_UINT8 * psRGXCtrlHWPerfIN_UI8,
 			  IMG_UINT8 * psRGXCtrlHWPerfOUT_UI8, CONNECTION_DATA * psConnection)
@@ -81,10 +81,10 @@ PVRSRVBridgeRGXCtrlHWPerf(IMG_UINT32 ui32DispatchTableEntry,
 				  psRGXCtrlHWPerfIN->ui32StreamId,
 				  psRGXCtrlHWPerfIN->bToggle, psRGXCtrlHWPerfIN->ui64Mask);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXCTRLHWPERF, eError);
 }
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXGetHWPerfBvncFeatureFlags(IMG_UINT32 ui32DispatchTableEntry,
 					 IMG_UINT8 * psRGXGetHWPerfBvncFeatureFlagsIN_UI8,
 					 IMG_UINT8 * psRGXGetHWPerfBvncFeatureFlagsOUT_UI8,
@@ -103,13 +103,13 @@ PVRSRVBridgeRGXGetHWPerfBvncFeatureFlags(IMG_UINT32 ui32DispatchTableEntry,
 	    PVRSRVRGXGetHWPerfBvncFeatureFlagsKM(psConnection, OSGetDevNode(psConnection),
 						 &psRGXGetHWPerfBvncFeatureFlagsOUT->sBVNC);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXGETHWPERFBVNCFEATUREFLAGS, eError);
 }
 
 static_assert(RGXFWIF_HWPERF_CTRL_BLKS_MAX <= IMG_UINT32_MAX,
 	      "RGXFWIF_HWPERF_CTRL_BLKS_MAX must not be larger than IMG_UINT32_MAX");
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXConfigMuxHWPerfCounters(IMG_UINT32 ui32DispatchTableEntry,
 				       IMG_UINT8 * psRGXConfigMuxHWPerfCountersIN_UI8,
 				       IMG_UINT8 * psRGXConfigMuxHWPerfCountersOUT_UI8,
@@ -226,13 +226,13 @@ RGXConfigMuxHWPerfCounters_exit:
 #endif
 		OSFreeMemNoStats(pArrayArgsBuffer);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXCONFIGMUXHWPERFCOUNTERS, eError);
 }
 
 static_assert(RGXFWIF_HWPERF_CTRL_BLKS_MAX <= IMG_UINT32_MAX,
 	      "RGXFWIF_HWPERF_CTRL_BLKS_MAX must not be larger than IMG_UINT32_MAX");
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXControlHWPerfBlocks(IMG_UINT32 ui32DispatchTableEntry,
 				   IMG_UINT8 * psRGXControlHWPerfBlocksIN_UI8,
 				   IMG_UINT8 * psRGXControlHWPerfBlocksOUT_UI8,
@@ -342,13 +342,13 @@ RGXControlHWPerfBlocks_exit:
 #endif
 		OSFreeMemNoStats(pArrayArgsBuffer);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXCONTROLHWPERFBLOCKS, eError);
 }
 
 static_assert(RGX_HWPERF_MAX_CUSTOM_CNTRS <= IMG_UINT32_MAX,
 	      "RGX_HWPERF_MAX_CUSTOM_CNTRS must not be larger than IMG_UINT32_MAX");
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXConfigCustomCounters(IMG_UINT32 ui32DispatchTableEntry,
 				    IMG_UINT8 * psRGXConfigCustomCountersIN_UI8,
 				    IMG_UINT8 * psRGXConfigCustomCountersOUT_UI8,
@@ -463,13 +463,13 @@ RGXConfigCustomCounters_exit:
 #endif
 		OSFreeMemNoStats(pArrayArgsBuffer);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXCONFIGCUSTOMCOUNTERS, eError);
 }
 
 static_assert(RGXFWIF_HWPERF_CTRL_BLKS_MAX <= IMG_UINT32_MAX,
 	      "RGXFWIF_HWPERF_CTRL_BLKS_MAX must not be larger than IMG_UINT32_MAX");
 
-static IMG_INT
+static size_t
 PVRSRVBridgeRGXConfigureHWPerfBlocks(IMG_UINT32 ui32DispatchTableEntry,
 				     IMG_UINT8 * psRGXConfigureHWPerfBlocksIN_UI8,
 				     IMG_UINT8 * psRGXConfigureHWPerfBlocksOUT_UI8,
@@ -583,7 +583,7 @@ RGXConfigureHWPerfBlocks_exit:
 #endif
 		OSFreeMemNoStats(pArrayArgsBuffer);
 
-	return 0;
+	return offsetof(PVRSRV_BRIDGE_OUT_RGXCONFIGUREHWPERFBLOCKS, eError);
 }
 
 /* ***************************************************************************

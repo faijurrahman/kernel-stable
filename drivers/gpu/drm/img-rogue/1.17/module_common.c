@@ -552,6 +552,7 @@ int PVRSRVDeviceServicesOpen(PVRSRV_DEVICE_NODE *psDeviceNode,
 
 fail_connect:
 fail_device_init:
+	psDRMFile->driver_priv = NULL;
 	kfree(psConnectionPriv);
 fail_alloc_connection_priv:
 out:

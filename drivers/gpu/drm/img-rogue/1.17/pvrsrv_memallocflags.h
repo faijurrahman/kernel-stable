@@ -941,6 +941,8 @@ typedef IMG_UINT64 PVRSRV_MEMALLOCFLAGS_T;
 #if defined(DEBUG) || defined(SERVICES_SC)
 #define PVRSRV_MEMALLOCFLAGS_DEVMEMX_PHYSICAL_MASK (PVRSRV_MEMALLOCFLAGS_CPU_MMUFLAGSMASK | \
                                                     PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK | \
+                                                    PVRSRV_MEMALLOCFLAG_GPU_WRITEABLE | \
+                                                    PVRSRV_MEMALLOCFLAG_GPU_READABLE | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_READ_PERMITTED | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_WRITE_PERMITTED | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_CACHE_CLEAN | \
@@ -951,6 +953,8 @@ typedef IMG_UINT64 PVRSRV_MEMALLOCFLAGS_T;
 #else
 #define PVRSRV_MEMALLOCFLAGS_DEVMEMX_PHYSICAL_MASK (PVRSRV_MEMALLOCFLAGS_CPU_MMUFLAGSMASK | \
                                                     PVRSRV_MEMALLOCFLAG_GPU_CACHE_MODE_MASK | \
+                                                    PVRSRV_MEMALLOCFLAG_GPU_WRITEABLE | \
+                                                    PVRSRV_MEMALLOCFLAG_GPU_READABLE | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_READ_PERMITTED | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_WRITE_PERMITTED | \
                                                     PVRSRV_MEMALLOCFLAG_CPU_CACHE_CLEAN | \

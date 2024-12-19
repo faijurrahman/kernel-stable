@@ -654,6 +654,7 @@ fail_pvr_sync_open:
 fail_private_data_init:
 	kfree(psConnection);
 fail_alloc_connection:
+	psDRMFile->driver_priv = NULL;
 	kfree(psConnectionPriv);
 out:
 	return iErr;

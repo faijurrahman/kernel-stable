@@ -1364,7 +1364,7 @@ int iwl_mvm_mac_start(struct ieee80211_hw *hw)
 
 	for (retry = 0; retry <= max_retry; retry++) {
 		ret = __iwl_mvm_mac_start(mvm);
-		if (ret != -ETIMEDOUT)
+		if (!ret)
 			break;
 
 		IWL_ERR(mvm, "mac start retry %d\n", retry);

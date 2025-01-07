@@ -2220,6 +2220,10 @@ static void iwl_mvm_nic_error(struct iwl_op_mode *op_mode,
 				     &mvm->status))
 		iwl_mvm_dump_nic_error_log(mvm);
 
+	if (test_bit(IWL_MVM_STATUS_STARTING, &mvm->status)) {
+		IWL_ERR(mvm, "Starting mac, retry will be triggered anyway\n");
+		return;
+	}
 	/*
 	 * This should be first thing before trying to collect any
 	 * data to avoid endless loops if any HW error happens while
@@ -2279,7 +2283,9 @@ static bool iwl_mvm_sw_reset(struct iwl_op_mode *op_mode,
 	 * If WoWLAN fw asserted, don't restart either, mac80211
 	 * can't recover this since we're already half suspended.
 	 */
-	if (mvm->fwrt.cur_fw_img == IWL_UCODE_REGULAR && mvm->hw_registered) {
+	if (test_bit(IWL_MVM_STATUS_STARTING, &mvm->status)) {
+		IWL_ERR(mvm, "Starting mac, retry will be triggered anyway\n");
+	} else if (mvm->fwrt.cur_fw_img == IWL_UCODE_REGULAR && mvm->hw_registered) {
 		if (mvm->fw->ucode_capa.error_log_size) {
 			u32 src_size = mvm->fw->ucode_capa.error_log_size;
 			u32 src_addr = mvm->fw->ucode_capa.error_log_addr;

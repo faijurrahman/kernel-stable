@@ -198,6 +198,17 @@ IMG_UINT32 RGXCalcMListSize(PVRSRV_DEVICE_NODE *psDeviceNode,
                             IMG_UINT64 ui64MaxGlobalPBSize);
 
 /*************************************************************************/ /*!
+@Function       ValidateCriticalPMR
+@Description    Validate if critical PMR has proper flags and size.
+@Input          psPMR Pointer to PMR to validate.
+@Input          ui64MinSize Minimum size that PMR needs to have
+
+@Return         PVRSRV_ERROR PVRSRV_OK if validation successful.
+                Appropriate error otherwise.
+*/ /**************************************************************************/
+PVRSRV_ERROR ValidateCriticalPMR(PMR* psPMR, IMG_DEVMEM_SIZE_T ui64MinSize);
+
+/*************************************************************************/ /*!
 @Function       ValidateFreeListSizes
 @Description    Helper function for RGXCreateHWRTDataSet
                 For the freelist array passed to RGXCreateHWRTDataSet, validate

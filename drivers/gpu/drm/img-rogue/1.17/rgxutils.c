@@ -302,28 +302,19 @@ IMG_UINT32 RGXCalcMListSize(PVRSRV_DEVICE_NODE *psDeviceNode,
  * Critical PMRs are PMRs that are created by client that might contain physical page addresses.
  * We need to validate if they were allocated with proper flags. 
  */
-static PVRSRV_ERROR
-_ValidateCriticalPMR(PMR* psPMR, IMG_DEVMEM_SIZE_T ui64MinSize)
+PVRSRV_ERROR ValidateCriticalPMR(PMR* psPMR, IMG_DEVMEM_SIZE_T ui64MinSize)
 {
 	PVRSRV_ERROR eError;
 
 	PMR_FLAGS_T uiFlags = PMR_Flags(psPMR);
-
-	if (PMR_IsSparse(psPMR))
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		         "%s: Critical PMR cannot be sparse!",
-		         __func__));
-		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_INVALID_PARAMS, return_error);
-	}
 
 	/* Critical PMR cannot be user CPU mappable */
 	if (PVRSRV_CHECK_CPU_READABLE(uiFlags) ||
 	    PVRSRV_CHECK_CPU_WRITEABLE(uiFlags))
 	{
 		PVR_DPF((PVR_DBG_ERROR,
-		         "%s: Critical PMR allows CPU mapping (0x%" PVRSRV_MEMALLOCFLAGS_FMTSPEC ")",
-		         __func__, uiFlags));
+		         "Critical PMR allows CPU mapping (0x%" PVRSRV_MEMALLOCFLAGS_FMTSPEC ")",
+		         uiFlags));
 		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_DEVICEMEM_INVALID_PMR_FLAGS, return_error);
 	}
 
@@ -333,8 +324,8 @@ _ValidateCriticalPMR(PMR* psPMR, IMG_DEVMEM_SIZE_T ui64MinSize)
 	     PVRSRV_CHECK_CPU_CACHED(uiFlags)))
 	{
 		PVR_DPF((PVR_DBG_ERROR,
-		         "%s: Critical PMR allows CPU caching (0x%" PVRSRV_MEMALLOCFLAGS_FMTSPEC ")",
-		         __func__, uiFlags));
+		         "Critical PMR allows CPU caching (0x%" PVRSRV_MEMALLOCFLAGS_FMTSPEC ")",
+		         uiFlags));
 		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_DEVICEMEM_INVALID_PMR_FLAGS, return_error);
 	}
 
@@ -431,19 +422,10 @@ AcquireValidateRefCriticalBuffer(PVRSRV_DEVICE_NODE*     psDevNode,
 
 
 	/* Check buffer sizes and flags are as required */
-	eError = _ValidateCriticalPMR(*ppsPMR, ui64MinSize);
+	eError = ValidateCriticalPMR(*ppsPMR, ui64MinSize);
 	PVR_LOG_GOTO_IF_ERROR_VA(eError, RollbackReservation,
 	    "%s: Validation of critical PMR failed: %s",
 	    __func__, PVRSRVGetErrorString(eError));
-
-	/* Check exclusive flag and set if possible */
-	if (!PMR_SetExclusiveUse(*ppsPMR, IMG_TRUE))
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		     "%s: Critical PMR already in use (exclusive flag)!",
-		     __func__));
-		PVR_GOTO_WITH_ERROR(eError, PVRSRV_ERROR_INVALID_PARAMS, RollbackReservation);
-	}
 
 	/* If no error on validation ref the PMR */
 	(void) PMRRefPMR(*ppsPMR);
@@ -466,9 +448,6 @@ void UnrefAndReleaseCriticalBuffer(DEVMEMINT_RESERVATION2* psReservation)
 	eError = DevmemIntGetReservationData(psReservation, &psPMR, &sDummy);
 	PVR_LOG_IF_ERROR_VA(PVR_DBG_ERROR, eError,
 	    "Error when trying to obtain reservation data in %s", __func__);
-
-	/* Ignore return value. Clearing the flag cannot fail. */
-	PMR_SetExclusiveUse(psPMR, IMG_FALSE);
 
 	eError = PMRUnrefPMR(psPMR);
 	PVR_LOG_IF_ERROR_VA(PVR_DBG_ERROR, eError, 

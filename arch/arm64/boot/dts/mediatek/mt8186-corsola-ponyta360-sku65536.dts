@@ -4,71 +4,10 @@
  */
 
 /dts-v1/;
-#include "mt8186-corsola-ponyta.dtsi"
+#include "mt8186-corsola-ponyta360.dtsi"
 
 / {
 	model = "Google Ponyta sku65536/unprovisioned board";
 	compatible = "google,ponyta-sku65536", "google,ponyta-sku65537",
 		     "google,ponyta-sku2147483647", "google,ponyta", "mediatek,mt8186";
-};
-
-&keyboard_controller {
-	function-row-physmap = <
-		MATRIX_KEY(0x00, 0x02, 0)	/* T1 */
-		MATRIX_KEY(0x03, 0x02, 0)	/* T2 */
-		MATRIX_KEY(0x02, 0x02, 0)	/* T3 */
-		MATRIX_KEY(0x01, 0x02, 0)	/* T4 */
-		MATRIX_KEY(0x03, 0x04, 0)	/* T5 */
-		MATRIX_KEY(0x02, 0x04, 0)	/* T6 */
-		MATRIX_KEY(0x01, 0x04, 0)	/* T7 */
-		MATRIX_KEY(0x00, 0x04, 0)	/* T8 */
-		MATRIX_KEY(0x00, 0x01, 0)	/* T9 */
-		MATRIX_KEY(0x02, 0x09, 0)	/* T10 */
-	>;
-
-	linux,keymap = <
-		CROS_STD_MAIN_KEYMAP
-		MATRIX_KEY(0x00, 0x02, KEY_BACK)
-		MATRIX_KEY(0x03, 0x02, KEY_FORWARD)
-		MATRIX_KEY(0x02, 0x02, KEY_REFRESH)
-		MATRIX_KEY(0x01, 0x02, KEY_ZOOM)
-		MATRIX_KEY(0x03, 0x04, KEY_SCALE)
-		MATRIX_KEY(0x02, 0x04, KEY_BRIGHTNESSDOWN)
-		MATRIX_KEY(0x01, 0x04, KEY_BRIGHTNESSUP)
-		MATRIX_KEY(0x00, 0x04, KEY_MUTE)
-		MATRIX_KEY(0x00, 0x01, KEY_VOLUMEDOWN)
-		MATRIX_KEY(0x02, 0x09, KEY_VOLUMEUP)
-		MATRIX_KEY(0x00, 0x07, KEY_MUHENKAN)
-		MATRIX_KEY(0x00, 0x09, KEY_HENKAN)
-	>;
-};
-
-&i2c1 {
-	touchscreen_ilitek: touchscreen@41 {
-		compatible = "ilitek,ili2901";
-		reg = <0x41>;
-		interrupts-extended = <&pio 12 IRQ_TYPE_LEVEL_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&touchscreen_pins>;
-		panel = <&panel>;
-		reset-gpios = <&pio 60 GPIO_ACTIVE_LOW>;
-		vccio-supply = <&pp3300_s3>;
-	};
-};
-
-&i2c2 {
-	i2c-scl-internal-delay-ns = <22000>;
-
-	trackpad_pixart: trackpad@2c {
-		compatible = "hid-over-i2c";
-		reg = <0x2c>;
-		hid-descr-addr = <0x20>;
-		interrupts-extended = <&pio 11 IRQ_TYPE_LEVEL_LOW>;
-		vcc-supply = <&pp3300_s3>;
-		wakeup-source;
-	};
-};
-
-&mt6366codec {
-	mediatek,dmic-mode = <0>; /* two-wires */
 };

@@ -36,6 +36,8 @@ properties:
       - starry,himax83102-j02
         # STARRY ili9882t 10.51" WUXGA TFT LCD panel
       - starry,ili9882t
+        # KINGDISPLAY KD110N11-51IE 10.95" WUXGA TFT LCD panel
+      - kingdisplay,kd110n11-51ie
 
   reg:
     description: the virtual channel number of a DSI peripheral

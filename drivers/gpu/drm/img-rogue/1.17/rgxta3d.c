@@ -1886,47 +1886,12 @@ PVRSRV_ERROR RGXCreateFreeList2(CONNECTION_DATA			*psConnection,
 	IMG_DEV_VIRTADDR   sFreeListDevVAddr;
 	PMR*               psFreeListPMR = NULL;
 
-	/* Obtain reference to reservation object */
-	if (!DevmemIntReservationAcquire(psFreeListReservation))
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		        "%s: Failed to acquire reservation for freelist buffer",
-		        __func__));
-		eError = PVRSRV_ERROR_REFCOUNT_OVERFLOW;
-		goto ErrorReservationAcquire;
-	}
-
-	eError = DevmemIntGetReservationData(psFreeListReservation, &psFreeListPMR, &sFreeListDevVAddr);
-	if (eError != PVRSRV_OK)
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		        "%s: Error from DevmemIntGetReservationData: %s",
-		        __func__, PVRSRVGetErrorString(eError)));
-
-		goto ErrorAllocHost;
-	}
-
-	/* Check if client properly allocated PMMETA_PROTECT */
-	if ((PMR_Flags(psFreeListPMR) & PVRSRV_MEMALLOCFLAG_DEVICE_FLAG(PMMETA_PROTECT)) == 0)
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		        "%s: Freelist PMR must have PMMETA_PROTECT set",
-		        __func__));
-		eError = PVRSRV_ERROR_INVALID_FLAGS;
-		goto ErrorAllocHost;
-	}
-
-	if (PMR_IsSparse(psFreeListPMR))
-	{
-		PVR_DPF((PVR_DBG_ERROR,
-		        "%s: Free list PMR cannot be sparse!",
-		        __func__));
-		eError = PVRSRV_ERROR_INVALID_PARAMS;
-		goto ErrorAllocHost;
-	}
-
-	/* Ref the PMR to prevent resource being destroyed before use */
-	PMRRefPMR(psFreeListPMR);
+	eError = AcquireValidateRefCriticalBuffer(psDeviceNode,
+	                                          psFreeListReservation,
+	                                          0, /* Size is checked later after calculating initial grow size */
+	                                          &psFreeListPMR,
+	                                          &sFreeListDevVAddr);
+	PVR_LOG_RETURN_IF_ERROR(eError,  "Validation failed for Freelist reservation");
 
 	if (OSGetPageShift() > RGX_BIF_PM_PHYSICAL_PAGE_ALIGNSHIFT)
 	{
@@ -2149,10 +2114,8 @@ FWFreeListAlloc:
 	OSFreeMem(psFreeList);
 
 ErrorAllocHost:
-	DevmemIntReservationRelease(psFreeListReservation);
+	UnrefAndReleaseCriticalBuffer(psFreeListReservation);
 
-ErrorReservationAcquire:
-	PVR_ASSERT(eError != PVRSRV_OK);
 	return eError;
 }
 
@@ -2238,9 +2201,7 @@ PVRSRV_ERROR RGXDestroyFreeList(RGX_FREELIST *psFreeList)
 	PVR_ASSERT(dllist_is_empty(&psFreeList->sMemoryBlockInitHead));
 	PVR_ASSERT(psFreeList->ui32CurrentFLPages == 0);
 
-	/* Remove reference from the PMR and reservation resources */
-	PMRUnrefPMR(psFreeList->psFreeListPMR);
-	DevmemIntReservationRelease(psFreeList->psFreeListReservation);
+	UnrefAndReleaseCriticalBuffer(psFreeList->psFreeListReservation);
 
 	/* free Freelist */
 	OSFreeMem(psFreeList);

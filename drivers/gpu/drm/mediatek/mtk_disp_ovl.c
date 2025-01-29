@@ -305,8 +305,8 @@ void mtk_ovl_layer_config(struct device *dev, unsigned int idx,
 	unsigned int addr = pending->addr;
 	unsigned int pitch = pending->pitch & 0xffff;
 	unsigned int fmt = pending->format;
-	unsigned int offset = (pending->y << 16) | pending->x;
 	unsigned int rotation = pending->rotation;
+	unsigned int offset = (pending->y << 16) | pending->x;
 	unsigned int src_size = (pending->height << 16) | pending->width;
 	unsigned int con;
 

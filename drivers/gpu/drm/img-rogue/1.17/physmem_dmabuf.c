@@ -862,6 +862,9 @@ PhysmemExportDmaBuf(CONNECTION_DATA *psConnection,
 	PVR_RETURN_IF_FALSE(PMR_GetType(psPMR) != PMR_TYPE_DMABUF,
 	                    PVRSRV_ERROR_PMR_WRONG_PMR_TYPE);
 
+	eError = PMR_IsExportable(psPMR);
+	PVR_LOG_RETURN_IF_ERROR(eError, "PMR_IsExportable");
+
 	mutex_lock(&g_HashLock);
 
 	PMRRefPMR(psPMR);

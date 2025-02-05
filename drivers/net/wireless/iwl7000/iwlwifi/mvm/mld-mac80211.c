@@ -905,7 +905,7 @@ static void iwl_mvm_mld_vif_cfg_changed_station(struct iwl_mvm *mvm,
 
 	if (changes & BSS_CHANGED_PS) {
 		if (iwl_mvm_has_rlc_offload(mvm))
-			mvmvif->ps_disabled |= !vif->cfg.ps;
+			mvmvif->ps_disabled = !vif->cfg.ps;
 		ret = iwl_mvm_power_update_mac(mvm);
 		if (ret)
 			IWL_ERR(mvm, "failed to update power mode\n");

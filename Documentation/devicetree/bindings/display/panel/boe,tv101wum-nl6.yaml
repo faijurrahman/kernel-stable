@@ -38,8 +38,6 @@ properties:
       - starry,ili9882t
         # KINGDISPLAY KD110N11-51IE 10.95" WUXGA TFT LCD panel
       - kingdisplay,kd110n11-51ie
-        # STARRY 2082109QFH040022-50E 10.95" WUXGA TFT LCD panel
-      - starry,2082109qfh040022-50e
 
   reg:
     description: the virtual channel number of a DSI peripheral

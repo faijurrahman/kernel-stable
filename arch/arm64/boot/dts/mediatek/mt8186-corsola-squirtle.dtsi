@@ -45,7 +45,7 @@
 		reg = <0x68>;
 		hid-descr-addr = <0x20>;
 		interrupts-extended = <&pio 11 IRQ_TYPE_LEVEL_LOW>;
-		vcc-supply = <&pp3300_s3>;
+		vdd-supply = <&pp3300_s3>;
 		wakeup-source;
 	};
 };
@@ -57,6 +57,7 @@
 		compatible = "realtek,rt5650";
 		reg = <0x1a>;
 		avdd-supply = <&mt6366_vio18_reg>;
+		cpvdd-supply = <&mt6366_vio18_reg>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&rt1019p_pins_default>;
 		cbj-sleeve-gpio = <&pio 150 GPIO_ACTIVE_HIGH>;

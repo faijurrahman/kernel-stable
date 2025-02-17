@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0+
-TEST_GEN_PROGS := cs_dlserver_test
 
-cs_dlserver_test: cs_dlserver_test.c common.c
+ifneq ($(shell $(CC) --version 2>&1 | head -n 1 | grep clang),)
+CLANG_FLAGS += -no-integrated-as
+endif
 
-CFLAGS += $(KHDR_INCLUDES)
-CFLAGS += -Wall
+CFLAGS += -O2 -Wall -g -I./ -I../../../../usr/include/  -Wl,-rpath=./ \
+	  $(CLANG_FLAGS)
+LDLIBS += -lpthread
+
+TEST_GEN_FILES := cs_prctl_test
+TEST_PROGS := cs_prctl_test
 
 include ../lib.mk

@@ -1080,6 +1080,14 @@ void PVRGpuTraceEnableUfoCallback(void)
 	PVRSRV_RGXDEV_INFO *psRgxDevInfo;
 	PVRSRV_ERROR eError;
 #endif
+	/*
+	 * CHROMIUM:
+	 *
+	 * We have to check if lock is valid because the driver exits earlier
+	 * on non-8173 hardware.  See https://crrev.com/c/6167334.
+	 */
+	if (ghLockFTraceEventLock == NULL)
+		return;
 
 	/* Lock down events state, for consistent value of guiUfoEventRef */
 	OSLockAcquire(ghLockFTraceEventLock);
@@ -1195,6 +1203,14 @@ void PVRGpuTraceEnableFirmwareActivityCallback(void)
 		ui64FWEventsFilter |= RGX_HWPERF_EVENT_MASK_VALUE(i);
 	}
 #endif
+	/*
+	 * CHROMIUM:
+	 *
+	 * We have to check if lock is valid because the driver exits earlier
+	 * on non-8173 hardware.  See https://crrev.com/c/6167334.
+	 */
+	if (ghLockFTraceEventLock == NULL)
+		return;
 
 	OSWRLockAcquireRead(psPVRSRVData->hDeviceNodeListLock);
 	psDeviceNode = psPVRSRVData->psDeviceNodeList;

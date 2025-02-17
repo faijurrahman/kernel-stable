@@ -34,7 +34,7 @@
 		reg = <0x2c>;
 		hid-descr-addr = <0x20>;
 		interrupts-extended = <&pio 11 IRQ_TYPE_LEVEL_LOW>;
-		vcc-supply = <&pp3300_s3>;
+		vdd-supply = <&pp3300_s3>;
 		wakeup-source;
 	};
 };
@@ -75,4 +75,15 @@
 
 &u2port0 {
 	mediatek,eye-term = <2>;
+};
+
+&i2c_tunnel {
+	/delete-node/ sbs-battery@b;
+
+	battery: sbs-battery@f {
+		compatible = "sbs,sbs-battery";
+		reg = <0xf>;
+		sbs,i2c-retry-count = <2>;
+		sbs,poll-retry-count = <1>;
+	};
 };

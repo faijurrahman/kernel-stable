@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright 2025 Google LLC
+ */
+
+/dts-v1/;
+#include "mt8186-corsola-ponyta360.dtsi"
+
+/ {
+	model = "Google Ponyta sku65536/unprovisioned board";
+	compatible = "google,ponyta-sku65536", "google,ponyta-sku65537",
+		     "google,ponyta-sku2147483647", "google,ponyta", "mediatek,mt8186";
+};

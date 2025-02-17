@@ -383,6 +383,24 @@ TRACE_EVENT_CONDITION(cros_inet_release_enter,
 	),
 	TP_printk("do_not_depend:%pI4 %d %pI4 %d",
 	&__entry->saddr4, __entry->sport, &__entry->daddr4, __entry->dport));
+#ifdef __aarch64__
+TRACE_EVENT_CONDITION(cros_security_socket_post_create_enter,
+	TP_PROTO(struct socket *sock, int family, int type, int protocol, int kern),
+	TP_ARGS(sock, family, type, protocol, kern),
+	TP_CONDITION(sock && sock->sk && !kern),
+	TP_STRUCT__entry(
+		__field(int, family)
+		__field(int, type)
+		__field(int, protocol)
+	),
+	TP_fast_assign(
+		__entry->family = family;
+		__entry->type = type;
+		__entry->protocol = protocol;
+	),
+	TP_printk("do_not_depend:%d %d %d",
+	__entry->family, __entry->type, __entry->protocol));
+#endif // ifdef __aarch64__
 #endif // _TRACE_CROS_NET_H
 /* This part must be outside protection */
 #include <trace/define_trace.h>

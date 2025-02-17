@@ -600,7 +600,14 @@ unsigned long zone_reclaimable_pages(struct zone *zone)
 	if (can_reclaim_anon_pages(NULL, zone_to_nid(zone), NULL))
 		nr += zone_page_state_snapshot(zone, NR_ZONE_INACTIVE_ANON) +
 			zone_page_state_snapshot(zone, NR_ZONE_ACTIVE_ANON);
-
+	/*
+	 * If there are no reclaimable file-backed or anonymous pages,
+	 * ensure zones with sufficient free pages are not skipped.
+	 * This prevents zones like DMA32 from being ignored in reclaim
+	 * scenarios where they can still help alleviate memory pressure.
+	 */
+	if (nr == 0)
+		nr = zone_page_state_snapshot(zone, NR_FREE_PAGES);
 	return nr;
 }
 
@@ -3391,7 +3398,7 @@ static void reset_histograms(struct lruvec *lruvec, int type, unsigned long seq)
 
 static void reset_ctrl_pos(struct lruvec *lruvec, int type)
 {
-	int hist, tier;
+	int hist, tier, zone;
 	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	unsigned long carry_from_seq = lrugen->min_seq[type];
 	unsigned long next_seq = carry_from_seq + 1;
@@ -3414,9 +3421,10 @@ static void reset_ctrl_pos(struct lruvec *lruvec, int type)
 		if (tier)
 			sum += lrugen->protected[hist][type][tier - 1];
 		WRITE_ONCE(lrugen->avg_total[type][tier], sum / 2);
-
-		total_nr_pages += lrugen->nr_pages[next_gen][type][tier];
 	}
+
+	for (zone = 0; zone < MAX_NR_ZONES; zone++)
+		total_nr_pages += lrugen->nr_pages[next_gen][type][zone];
 	/* nr_pages is eventually consistent, so fix up the estimate if it's negative. */
 	total_nr_pages = max(total_nr_pages, 0);
 
@@ -3434,9 +3442,11 @@ static void reset_ctrl_pos(struct lruvec *lruvec, int type)
 static unsigned long retain_cost(struct ctrl_pos *retain, struct ctrl_pos *evict)
 {
 	unsigned long unnecessary_refaults, potential_refault;
+	unsigned long total_size = retain->gen_size + evict->gen_size;
 
 	unnecessary_refaults = (retain->num_victims << COST_SHIFT) / (retain->gen_size + 1);
 	potential_refault = (evict->refaulted << COST_SHIFT) / (evict->total + 1);
+	potential_refault = potential_refault * retain->gen_size / (total_size + 1);
 	return retain->gain * (unnecessary_refaults + potential_refault);
 }
 
@@ -5358,8 +5368,8 @@ static void lru_gen_shrink_node(struct pglist_data *pgdat, struct scan_control *
 
 	blk_finish_plug(&plug);
 done:
-	/* kswapd should never fail */
-	pgdat->kswapd_failures = 0;
+	if (sc->nr_reclaimed > reclaimed)
+		pgdat->kswapd_failures = 0;
 }
 
 #ifdef CONFIG_MEMCG

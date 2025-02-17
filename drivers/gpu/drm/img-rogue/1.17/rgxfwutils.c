@@ -822,10 +822,14 @@ static PVRSRV_ERROR _CheckPriority(PVRSRV_RGXDEV_INFO *psDevInfo,
 								   IMG_INT32 i32Priority,
 								   RGX_CCB_REQUESTOR_TYPE eRequestor)
 {
+	PVRSRV_ERROR eError = PVRSRV_OK;
+
 	/* Only one context allowed with real time priority (highest priority) */
 	if (i32Priority == RGX_CTX_PRIORITY_REALTIME)
 	{
 		DLLIST_NODE *psNode, *psNext;
+
+		OSWRLockAcquireRead(psDevInfo->hCommonCtxtListLock);
 
 		dllist_foreach_node(&psDevInfo->sCommonCtxtListHead, psNode, psNext)
 		{
@@ -836,12 +840,16 @@ static PVRSRV_ERROR _CheckPriority(PVRSRV_RGXDEV_INFO *psDevInfo,
 				psThisContext->eRequestor == eRequestor)
 			{
 				PVR_LOG(("Only one context with real time priority allowed"));
-				return PVRSRV_ERROR_INVALID_PARAMS;
+
+				eError = PVRSRV_ERROR_INVALID_PARAMS;
+				break;
 			}
 		}
+
+		OSWRLockReleaseRead(psDevInfo->hCommonCtxtListLock);
 	}
 
-	return PVRSRV_OK;
+	return eError;
 }
 
 PVRSRV_ERROR FWCommonContextAllocate(CONNECTION_DATA *psConnection,
@@ -881,7 +889,19 @@ PVRSRV_ERROR FWCommonContextAllocate(CONNECTION_DATA *psConnection,
 	}
 
 	psServerCommonContext->psDevInfo = psDevInfo;
-	psServerCommonContext->psServerMMUContext = psServerMMUContext;
+
+	if (psServerMMUContext != NULL)
+	{
+		eError = RGXServerMMUContextRef(psServerMMUContext);
+		PVR_LOG_GOTO_IF_ERROR(eError, "RGXServerMMUContextRef", fail_contextalloc);
+
+		psServerCommonContext->psServerMMUContext = psServerMMUContext;
+	}
+	else
+	{
+		psServerCommonContext->psServerMMUContext = NULL;
+	}
+
 
 	if (psAllocatedMemDesc)
 	{
@@ -1158,6 +1178,12 @@ void FWCommonContextFree(RGX_SERVER_COMMON_CONTEXT *psServerCommonContext)
 				psServerCommonContext->psFWCommonContextMemDesc);
 		psServerCommonContext->psFWCommonContextMemDesc = NULL;
 	}
+
+	if (psServerCommonContext->psServerMMUContext != NULL)
+	{
+		RGXServerMMUContextUnref(psServerCommonContext->psServerMMUContext);
+	}
+
 	/* Free the hosts representation of the common context */
 	OSFreeMem(psServerCommonContext);
 }

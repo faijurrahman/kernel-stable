@@ -470,7 +470,7 @@ static PVRSRV_ERROR _ValidateWithFWModule(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPri
 
 			if (pui32FWCode[i] != ui32Value)
 			{
-				PVR_DUMPDEBUG_LOG("%s: Mismatch while validating %s at offset 0x%x: CPU 0x%08x (%p), FW 0x%08x (%x)",
+				PVR_DUMPDEBUG_LOG("%s: Mismatch while validating %s at offset 0x%x: CPU 0x%08x ("IMG_KM_PTR_FMTSPEC"), FW 0x%08x (%x)",
 					 __func__, pszDesc,
 					 (i * 4) + ui32StartOffset, pui32FWCode[i], pui32FWCode, ui32Value, ui32FWCodeDevVAAddr);
 				return PVRSRV_ERROR_FW_IMAGE_MISMATCH;
@@ -4961,7 +4961,7 @@ PVRSRV_ERROR RGXDumpRGXRegisters(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
 	PVRSRV_ERROR eError;
 
 	PVR_DUMPDEBUG_LOG("------[ RGX registers ]------");
-	PVR_DUMPDEBUG_LOG("RGX Register Base Address (Linear):   0x%p", psDevInfo->pvRegsBaseKM);
+	PVR_DUMPDEBUG_LOG("RGX Register Base Address (Linear):   0x"IMG_KM_PTR_FMTSPEC, psDevInfo->pvRegsBaseKM);
 	PVR_DUMPDEBUG_LOG("RGX Register Base Address (Physical): 0x%08lX", (unsigned long)psDevInfo->sRegsPhysBase.uiAddr);
 
 	/* Check if firmware perf was set at Init time */
@@ -5392,7 +5392,7 @@ void RGXDebugRequestProcess(DUMPDEBUG_PRINTF_FUNC *pfnDumpDebugPrintf,
 	bRGXPoweredON = (ePowerState == PVRSRV_DEV_POWER_STATE_ON);
 
 	PVR_DUMPDEBUG_LOG("------[ RGX Info ]------");
-	PVR_DUMPDEBUG_LOG("Device Node (Info): %p (%p)", psDevInfo->psDeviceNode, psDevInfo);
+	PVR_DUMPDEBUG_LOG("Device Node (Info): "IMG_KM_PTR_FMTSPEC" ("IMG_KM_PTR_FMTSPEC")", psDevInfo->psDeviceNode, psDevInfo);
 	PVR_DUMPDEBUG_LOG("RGX BVNC: %d.%d.%d.%d (%s)", psDevInfo->sDevFeatureCfg.ui32B,
 											   psDevInfo->sDevFeatureCfg.ui32V,
 											   psDevInfo->sDevFeatureCfg.ui32N,

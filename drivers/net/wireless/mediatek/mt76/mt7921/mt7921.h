@@ -299,6 +299,8 @@ struct mt7921_dev {
 	struct mt7921_phy phy;
 	struct tasklet_struct irq_tasklet;
 
+	struct mac_address macaddr_list[8];
+
 	struct work_struct reset_work;
 	bool hw_full_reset:1;
 	bool hw_init_done:1;
@@ -620,4 +622,5 @@ int mt7921_mcu_abort_roc(struct mt7921_phy *phy, struct mt7921_vif *vif,
 			 u8 token_id);
 void mt7921_roc_abort_sync(struct mt7921_dev *dev);
 u8 mt7921_check_offload_capability(struct device *dev, const char *fw_wm);
+void mt7921_config_mac_addr_list(struct mt7921_dev *dev);
 #endif

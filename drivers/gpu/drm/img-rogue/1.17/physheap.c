@@ -243,7 +243,7 @@ static void _PhysHeapDebugRequest(PVRSRV_DBGREQ_HANDLE pfnDbgRequestHandle,
 				sGPUPAddr.uiAddr = IMG_UINT64_MAX;
 			}
 
-			PVR_DUMPDEBUG_LOG("0x%p -> Name: %s, Type: %s, "
+			PVR_DUMPDEBUG_LOG("0x"IMG_KM_PTR_FMTSPEC" -> Name: %s, Type: %s, "
 
 			                  "CPU PA Base: " CPUPHYADDR_UINT_FMTSPEC", "
 			                  "GPU PA Base: 0x%08"IMG_UINT64_FMTSPECx", "
@@ -262,7 +262,7 @@ static void _PhysHeapDebugRequest(PVRSRV_DBGREQ_HANDLE pfnDbgRequestHandle,
 		}
 		else
 		{
-			PVR_DUMPDEBUG_LOG("0x%p -> Name: %s, Type: %s, "
+			PVR_DUMPDEBUG_LOG("0x"IMG_KM_PTR_FMTSPEC" -> Name: %s, Type: %s, "
 			                  "Usage Flags: 0x%08x, Refs: %d, "
 			                  "Free Size: %"IMG_UINT64_FMTSPEC", "
 			                  "Total Size: %"IMG_UINT64_FMTSPEC,

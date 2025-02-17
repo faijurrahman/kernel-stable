@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright 2025 Google LLC
+ *
+ * Panel ID: 0x9 (starry,2082109qfh040022-50e)
+ * Unprovisioned SKU: 0x7FFFFFF0UL | 0x09
+ */
+
+/dts-v1/;
+#include "mt8186-corsola-wyrdeer.dtsi"
+
+/ {
+	model = "Google wyrdeer sku65545/sku131081/unprovisioned board";
+	compatible = "google,wyrdeer-sku65545", "google,wyrdeer-sku131081",
+		     "google,wyrdeer-sku2147483641","google,wyrdeer", "mediatek,mt8186";
+};
+
+&panel{
+	compatible = "starry,2082109qfh040022-50e";
+};

@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright 2025 Google LLC
+ *
+ * Panel ID: 0x6 (kingdisplay,kd110n11-51ie)
+ * Unprovisioned SKU: 0x7FFFFFF0UL | 0x06
+ */
+
+/dts-v1/;
+#include "mt8186-corsola-wyrdeer.dtsi"
+
+/ {
+	model = "Google wyrdeer sku65542/sku131078/unprovisioned board";
+	compatible = "google,wyrdeer-sku65542", "google,wyrdeer-sku131078",
+		     "google,wyrdeer-sku2147483638","google,wyrdeer", "mediatek,mt8186";
+};
+
+&panel{
+	compatible = "kingdisplay,kd110n11-51ie";
+};

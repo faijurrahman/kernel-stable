@@ -33,11 +33,11 @@ TRACE_EVENT_CONDITION(cros_filp_close_exit,
 	TP_printk("do_not_depend:%s", __entry->name)
 	);
 
-TRACE_EVENT_CONDITION(cros_security_inode_rename_exit,
-	TP_PROTO(struct inode *old_dir, struct dentry *old_dentry,
-		struct inode *new_dir, struct dentry *new_dentry,
+TRACE_EVENT_CONDITION(cros_security_path_rename_exit,
+	TP_PROTO(const struct path *old_path, struct dentry *old_dentry,
+		const struct path *new_path, struct dentry *new_dentry,
 		unsigned int flags, int ret),
-	TP_ARGS(old_dir, old_dentry, new_dir, new_dentry, flags, ret),
+	TP_ARGS(old_path, old_dentry, new_path, new_dentry, flags, ret),
 	TP_CONDITION(old_dentry && new_dentry),
 	TP_STRUCT__entry(
 		__array(char, old_name, 128)
@@ -61,6 +61,42 @@ TRACE_EVENT_CONDITION(cros_security_inode_rename_exit,
 		name_len = min(new_dname->len, max_new_name_size);
 		memmove(__entry->new_name, new_dname->name, name_len);
 		__entry->new_name[name_len] = '\0';
+	),
+	TP_printk("do_not_depend: from:%s to:%s", __entry->old_name, __entry->new_name)
+	);
+
+TRACE_EVENT_CONDITION(cros_vfs_rename_exit,
+	TP_PROTO(struct renamedata *rd, int ret),
+	TP_ARGS(rd, ret),
+	TP_CONDITION(rd),
+	TP_STRUCT__entry(
+		__array(char, old_name, 128)
+		__array(char, new_name, 128)
+	),
+	TP_fast_assign(
+		struct dentry *old_dentry = rd->old_dentry;
+		struct dentry *new_dentry = rd->new_dentry;
+		unsigned int name_len = 0;
+
+		__entry->old_name[0] = '\0';
+		__entry->new_name[0] = '\0';
+		if (old_dentry) {
+			struct qstr *old_dname = &(old_dentry->d_name);
+			/*  Max size without null terminator. */
+			static const unsigned int max_old_name_size = sizeof(__entry->old_name)-1;
+
+			name_len = min(old_dname->len, max_old_name_size);
+			memmove(__entry->old_name, old_dname->name, name_len);
+			__entry->old_name[name_len] = '\0';
+		}
+		if (new_dentry) {
+			struct qstr *new_dname = &(new_dentry->d_name);
+			static const unsigned int max_new_name_size = sizeof(__entry->new_name)-1;
+
+			name_len = min(new_dname->len, max_new_name_size);
+			memmove(__entry->new_name, new_dname->name, name_len);
+			__entry->new_name[name_len] = '\0';
+		}
 	),
 	TP_printk("do_not_depend: from:%s to:%s", __entry->old_name, __entry->new_name)
 	);

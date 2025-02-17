@@ -48,6 +48,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /* DRVNAME is the name we use to register our driver. */
 #define DRVNAME PVR_LDM_DRIVER_REGISTRATION_NAME
 
+#define DKF_CONNECTION_FLAG_SYNC        BIT(0)
+#define DKF_CONNECTION_FLAG_SERVICES    BIT(1)
+
+#define DKF_CONNECTION_FLAG_INVALID     IMG_UINT32_C(0)
+
 struct _PVRSRV_DEVICE_NODE_;
 struct drm_file;
 struct drm_device;
@@ -79,6 +84,10 @@ typedef struct
 	 * the same psDRMFile.
 	 */
 	void *pvSyncConnectionData;
+	/* An integer representing the type of connection.
+	 */
+	uint32_t ui32Type;
+
 } PVRSRV_CONNECTION_PRIV;
 
 int PVRSRVDriverInit(void);

@@ -247,6 +247,13 @@ static enum nl80211_chan_width ieee80211_get_sta_bw(struct sta_info *sta,
 	if (!link_sta)
 		return NL80211_CHAN_WIDTH_20_NOHT;
 
+	/*
+	 * We assume that TX/RX might be asymmetric (so e.g. VHT operating
+	 * mode notification changes what a STA wants to receive, but not
+	 * necessarily what it will transmit to us), and therefore use the
+	 * capabilities here. Calling it RX bandwidth capability is a bit
+	 * wrong though, since capabilities are in fact symmetric.
+	 */
 	width = ieee80211_sta_cap_rx_bw(link_sta);
 
 	switch (width) {
@@ -323,18 +330,26 @@ ieee80211_get_chanctx_max_required_bw(struct ieee80211_local *local,
 			continue;
 
 		switch (link->sdata->vif.type) {
+		case NL80211_IFTYPE_STATION:
+			if (!link->sdata->vif.cfg.assoc) {
+				/*
+				 * The AP's sta->bandwidth may not yet be set
+				 * at this point (pre-association), so simply
+				 * take the width from the chandef. We cannot
+				 * have TDLS peers yet (only after association).
+				 */
+				width = link->conf->chanreq.oper.width;
+				break;
+			}
+			/*
+			 * otherwise just use min_def like in AP, depending on what
+			 * we currently think the AP STA (and possibly TDLS peers)
+			 * require(s)
+			 */
+			fallthrough;
 		case NL80211_IFTYPE_AP:
 		case NL80211_IFTYPE_AP_VLAN:
 			width = ieee80211_get_max_required_bw(link);
-			break;
-		case NL80211_IFTYPE_STATION:
-			/*
-			 * The ap's sta->bandwidth is not set yet at this
-			 * point, so take the width from the chandef, but
-			 * account also for TDLS peers
-			 */
-			width = max(link->conf->chanreq.oper.width,
-				    ieee80211_get_max_required_bw(link));
 			break;
 		case NL80211_IFTYPE_P2P_DEVICE:
 		case NL80211_IFTYPE_NAN:
@@ -467,7 +482,7 @@ static void ieee80211_chan_bw_change(struct ieee80211_local *local,
 				continue;
 
 			link_sta->pub->bandwidth = new_sta_bw;
-			rate_control_rate_update(local, sband, sta, link_id,
+			rate_control_rate_update(local, sband, link_sta,
 						 IEEE80211_RC_BW_CHANGED);
 		}
 	}
@@ -683,6 +698,7 @@ ieee80211_alloc_chanctx(struct ieee80211_local *local,
 	ctx->mode = mode;
 	ctx->conf.radar_enabled = false;
 	ctx->conf.radio_idx = radio_idx;
+	ctx->radar_detected = false;
 	_ieee80211_recalc_chanctx_min_def(local, ctx, NULL, false);
 
 	return ctx;

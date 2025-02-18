@@ -356,6 +356,9 @@ VISIBLE_IF_IWLWIFI_KUNIT const struct pci_device_id iwl_hw_card_ids[] = {
 	{IWL_PCI_DEVICE(0xE340, PCI_ANY_ID, iwl_sc_trans_cfg)},
 	{IWL_PCI_DEVICE(0xD340, PCI_ANY_ID, iwl_sc_trans_cfg)},
 	{IWL_PCI_DEVICE(0x6E70, PCI_ANY_ID, iwl_sc_trans_cfg)},
+
+/* Dr devices */
+	{IWL_PCI_DEVICE(0x272F, PCI_ANY_ID, iwl_dr_trans_cfg)},
 #endif /* CPTCFG_IWLMVM || CPTCFG_IWLMLD */
 
 	{0}
@@ -965,6 +968,20 @@ VISIBLE_IF_IWLWIFI_KUNIT const struct iwl_dev_info iwl_dev_info_table[] = {
 		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
 		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
 		      iwl_cfg_sc2f, iwl_sc2f_name),
+
+/* Dr */
+	_IWL_DEV_INFO(IWL_CFG_ANY, IWL_CFG_ANY,
+		      IWL_CFG_MAC_TYPE_DR, IWL_CFG_ANY,
+		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
+		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
+		      iwl_cfg_dr, iwl_dr_name),
+
+/* Br */
+	_IWL_DEV_INFO(IWL_CFG_ANY, IWL_CFG_ANY,
+		      IWL_CFG_MAC_TYPE_BR, IWL_CFG_ANY,
+		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
+		      IWL_CFG_ANY, IWL_CFG_ANY, IWL_CFG_ANY,
+		      iwl_cfg_br, iwl_br_name),
 #endif /* CPTCFG_IWLMVM || CPTCFG_IWLMLD */
 };
 EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_dev_info_table);
@@ -1063,6 +1080,9 @@ static int map_crf_id(struct iwl_trans *iwl_trans)
 		break;
 	case REG_CRF_ID_TYPE_WHP:
 		iwl_trans->hw_rf_id = (IWL_CFG_RF_TYPE_WH << 12);
+		break;
+	case REG_CRF_ID_TYPE_PE:
+		iwl_trans->hw_rf_id = (IWL_CFG_RF_TYPE_PE << 12);
 		break;
 	default:
 		ret = -EIO;

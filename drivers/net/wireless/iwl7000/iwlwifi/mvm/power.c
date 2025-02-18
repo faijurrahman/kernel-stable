@@ -371,7 +371,8 @@ static void iwl_mvm_power_build_cmd(struct iwl_mvm *mvm,
 	 */
 	keep_alive = DIV_ROUND_UP(ieee80211_tu_to_usec(3 * dtimper * bi),
 				  USEC_PER_SEC);
-	keep_alive = max(keep_alive, POWER_KEEP_ALIVE_PERIOD_SEC);
+	keep_alive = max(keep_alive,
+			 (typeof(keep_alive))POWER_KEEP_ALIVE_PERIOD_SEC);
 	cmd->keep_alive_seconds = cpu_to_le16(keep_alive);
 
 	if (mvm->ps_disabled)

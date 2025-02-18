@@ -5,6 +5,7 @@ iwlwifi-objs		+= iwl-io.o
 iwlwifi-objs		+= iwl-drv.o
 iwlwifi-objs		+= iwl-debug.o
 iwlwifi-objs		+= iwl-nvm-utils.o
+iwlwifi-objs		+= iwl-utils.o
 iwlwifi-objs		+= iwl-phy-db.o iwl-nvm-parse.o
 iwlwifi-objs		+= iwl-dbg-tlv.o
 iwlwifi-objs		+= iwl-trans.o
@@ -27,7 +28,7 @@ iwlwifi-$(CONFIG_PCI) += pcie/ctxt-info.o pcie/ctxt-info-gen3.o pcie/trans-gen2.
 
 iwlwifi-$(CPTCFG_IWLMVM) += cfg/7000.o cfg/8000.o
 iwlwifi-$(CPTCFG_IWLMVM) += cfg/9000.o cfg/22000.o
-iwlwifi-$(CPTCFG_IWLMVM) += cfg/ax210.o cfg/bz.o cfg/sc.o
+iwlwifi-$(CPTCFG_IWLMVM) += cfg/ax210.o cfg/bz.o cfg/sc.o cfg/dr.o
 
 iwlwifi-$(CPTCFG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES) += iwl-dbg-cfg.o
 

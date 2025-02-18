@@ -1009,8 +1009,9 @@ enum mac80211_tx_info_flags {
  *	of their QoS TID or other priority field values.
  * @IEEE80211_TX_CTRL_MCAST_MLO_FIRST_TX: first MLO TX, used mostly internally
  *	for sequence number assignment
- * @IEEE80211_TX_CTRL_SCAN_TX: Indicates that this frame is transmitted
- *	due to scanning, not in normal operation on the interface.
+ * @IEEE80211_TX_CTRL_DONT_USE_RATE_MASK: Don't use rate mask for this frame
+ *	which is transmitted due to scanning or offchannel TX, not in normal
+ *	operation on the interface.
  * @IEEE80211_TX_CTRL_MLO_LINK: If not @IEEE80211_LINK_UNSPECIFIED, this
  *	frame should be transmitted on the specific link. This really is
  *	only relevant for frames that do not have data present, and is
@@ -1031,7 +1032,7 @@ enum mac80211_tx_control_flags {
 	IEEE80211_TX_CTRL_NO_SEQNO		= BIT(7),
 	IEEE80211_TX_CTRL_DONT_REORDER		= BIT(8),
 	IEEE80211_TX_CTRL_MCAST_MLO_FIRST_TX	= BIT(9),
-	IEEE80211_TX_CTRL_SCAN_TX		= BIT(10),
+	IEEE80211_TX_CTRL_DONT_USE_RATE_MASK	= BIT(10),
 	IEEE80211_TX_CTRL_MLO_LINK		= 0xf0000000,
 };
 
@@ -1867,6 +1868,9 @@ struct ieee80211_channel_switch {
  *	operation on this interface and request a channel context without
  *	the AP definition. Use this e.g. because the device is able to
  *	handle OFDMA (downlink and trigger for uplink) on a per-AP basis.
+ * @IEEE80211_VIF_REMOVE_AP_AFTER_DISASSOC: indicates that the AP sta should
+ *	be removed only after setting the vif as unassociated, and not the
+ *	opposite. Only relevant for STA vifs.
  */
 enum ieee80211_vif_flags {
 	IEEE80211_VIF_BEACON_FILTER		= BIT(0),
@@ -1875,6 +1879,7 @@ enum ieee80211_vif_flags {
 	IEEE80211_VIF_GET_NOA_UPDATE		= BIT(3),
 	IEEE80211_VIF_EML_ACTIVE	        = BIT(4),
 	IEEE80211_VIF_IGNORE_OFDMA_WIDER_BW	= BIT(5),
+	IEEE80211_VIF_REMOVE_AP_AFTER_DISASSOC	= BIT(6),
 };
 
 
@@ -2225,7 +2230,7 @@ enum ieee80211_key_flags {
  * @tx_pn: PN used for TX keys, may be used by the driver as well if it
  *	needs to do software PN assignment by itself (e.g. due to TSO)
  * @flags: key flags, see &enum ieee80211_key_flags.
- * @keyidx: the key index (0-3)
+ * @keyidx: the key index (0-7)
  * @keylen: key material length
  * @key: key material. For ALG_TKIP the key is encoded as a 256-bit (32 byte)
  * 	data block:
@@ -2344,6 +2349,8 @@ enum ieee80211_sta_rx_bandwidth {
 	IEEE80211_STA_RX_BW_160,
 	IEEE80211_STA_RX_BW_320,
 };
+
+#define IEEE80211_STA_RX_BW_MAX	IEEE80211_STA_RX_BW_320
 
 /**
  * struct ieee80211_sta_rates - station rate selection table
@@ -2511,7 +2518,7 @@ struct ieee80211_link_sta {
  * @spp_amsdu: indicates whether the STA uses SPP A-MSDU or not.
  */
 struct ieee80211_sta {
-	u8 addr[ETH_ALEN];
+	u8 addr[ETH_ALEN] __aligned(2);
 	u16 aid;
 	u16 max_rx_aggregation_subframes;
 	bool wme;
@@ -3206,6 +3213,19 @@ ieee80211_get_alt_retry_rate(const struct ieee80211_hw *hw,
  * to transmit happened and thus status cannot be reported.
  */
 void ieee80211_free_txskb(struct ieee80211_hw *hw, struct sk_buff *skb);
+
+/**
+ * ieee80211_purge_tx_queue - purge TX skb queue
+ * @hw: the hardware
+ * @skbs: the skbs
+ *
+ * Free a set of transmit skbs. Use this function when device is going to stop
+ * but some transmit skbs without TX status are still queued.
+ * This function does not take the list lock and the caller must hold the
+ * relevant locks to use it.
+ */
+void ieee80211_purge_tx_queue(struct ieee80211_hw *hw,
+			      struct sk_buff_head *skbs);
 
 /**
  * DOC: Hardware crypto acceleration
@@ -4088,8 +4108,8 @@ struct ieee80211_prep_tx_info {
  *	in @sta_state.
  *	The callback can sleep.
  *
- * @sta_rc_update: Notifies the driver of changes to the bitrates that can be
- *	used to transmit to the station. The changes are advertised with bits
+ * @link_sta_rc_update: Notifies the driver of changes to the bitrates that can
+ *	be used to transmit to the station. The changes are advertised with bits
  *	from &enum ieee80211_rate_control_changed and the values are reflected
  *	in the station data. This callback should only be used when the driver
  *	uses hardware rate control (%IEEE80211_HW_HAS_RATE_CONTROL) since
@@ -4579,10 +4599,10 @@ struct ieee80211_ops {
 	void (*sta_pre_rcu_remove)(struct ieee80211_hw *hw,
 				   struct ieee80211_vif *vif,
 				   struct ieee80211_sta *sta);
-	void (*sta_rc_update)(struct ieee80211_hw *hw,
-			      struct ieee80211_vif *vif,
-			      struct ieee80211_sta *sta,
-			      u32 changed);
+	void (*link_sta_rc_update)(struct ieee80211_hw *hw,
+				   struct ieee80211_vif *vif,
+				   struct ieee80211_link_sta *link_sta,
+				   u32 changed);
 	void (*sta_rate_tbl_update)(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    struct ieee80211_sta *sta);
@@ -6281,6 +6301,24 @@ void ieee80211_iterate_stations_atomic(struct ieee80211_hw *hw,
 				       void (*iterator)(void *data,
 						struct ieee80211_sta *sta),
 				       void *data);
+
+/**
+ * ieee80211_iterate_stations_mtx - iterate stations
+ *
+ * This function iterates over all stations associated with a given
+ * hardware that are currently uploaded to the driver and calls the callback
+ * function for them. This version can only be used while holding the wiphy
+ * mutex.
+ *
+ * @hw: the hardware struct of which the interfaces should be iterated over
+ * @iterator: the iterator function to call
+ * @data: first argument of the iterator function
+ */
+void ieee80211_iterate_stations_mtx(struct ieee80211_hw *hw,
+				    void (*iterator)(void *data,
+						     struct ieee80211_sta *sta),
+				    void *data);
+
 /**
  * ieee80211_queue_work - add work onto the mac80211 workqueue
  *
@@ -6755,8 +6793,11 @@ void ieee80211_cqm_beacon_loss_notify(struct ieee80211_vif *vif, gfp_t gfp);
  * ieee80211_radar_detected - inform that a radar was detected
  *
  * @hw: pointer as obtained from ieee80211_alloc_hw()
+ * @chanctx_conf: Channel context on which radar is detected. Mandatory to
+ *	pass a valid pointer during MLO. For non-MLO %NULL can be passed
  */
-void ieee80211_radar_detected(struct ieee80211_hw *hw);
+void ieee80211_radar_detected(struct ieee80211_hw *hw,
+			      struct ieee80211_chanctx_conf *chanctx_conf);
 
 /**
  * ieee80211_chswitch_done - Complete channel switch process
@@ -6774,14 +6815,12 @@ void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success,
 /**
  * ieee80211_channel_switch_disconnect - disconnect due to channel switch error
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
- * @block_tx: if %true, do not send deauth frame.
  *
  * Instruct mac80211 to disconnect due to a channel switch error. The channel
  * switch can request to block the tx and so, we need to make sure we do not send
  * a deauth frame in this case.
  */
-void ieee80211_channel_switch_disconnect(struct ieee80211_vif *vif,
-					 bool block_tx);
+void ieee80211_channel_switch_disconnect(struct ieee80211_vif *vif);
 
 /**
  * ieee80211_request_smps - request SM PS transition
@@ -7684,6 +7723,77 @@ void ieee80211_set_active_links_async(struct ieee80211_vif *vif,
  * TTLM request.
  */
 void ieee80211_send_teardown_neg_ttlm(struct ieee80211_vif *vif);
+
+/**
+ * ieee80211_chan_width_to_rx_bw - convert channel width to STA RX bandwidth
+ * @width: the channel width value to convert
+ * Return: the STA RX bandwidth value for the channel width
+ */
+static inline enum ieee80211_sta_rx_bandwidth
+ieee80211_chan_width_to_rx_bw(enum nl80211_chan_width width)
+{
+	switch((int)width) {
+	default:
+		WARN_ON_ONCE(1);
+		fallthrough;
+	case NL80211_CHAN_WIDTH_20_NOHT:
+	case NL80211_CHAN_WIDTH_20:
+		return IEEE80211_STA_RX_BW_20;
+	case NL80211_CHAN_WIDTH_40:
+		return IEEE80211_STA_RX_BW_40;
+	case NL80211_CHAN_WIDTH_80:
+		return IEEE80211_STA_RX_BW_80;
+	case NL80211_CHAN_WIDTH_160:
+	case NL80211_CHAN_WIDTH_80P80:
+		return IEEE80211_STA_RX_BW_160;
+	case NL80211_CHAN_WIDTH_320:
+		return IEEE80211_STA_RX_BW_320;
+	}
+}
+
+/**
+ * ieee80211_prepare_rx_omi_bw - prepare for sending BW RX OMI
+ * @link_sta: the link STA the OMI is going to be sent to
+ * @bw: the bandwidth requested
+ *
+ * When the driver decides to do RX OMI to change bandwidth with a STA
+ * it calls this function to prepare, then sends the OMI, and finally
+ * calls ieee80211_finalize_rx_omi_bw().
+ *
+ * Note that the (link) STA rate control is updated accordingly as well,
+ * but the chanctx might not be updated if there are other users.
+ * If the intention is to reduce the listen bandwidth, the driver must
+ * ensure there are no TDLS stations nor other uses of the chanctx.
+ *
+ * Also note that in order to sequence correctly, narrowing bandwidth
+ * will only happen in ieee80211_finalize_rx_omi_bw(), whereas widening
+ * again (e.g. going back to normal) will happen here.
+ *
+ * Note that we treat this symmetrically, so if the driver calls this
+ * and tells the peer to only send with a lower bandwidth, we assume
+ * that the driver also wants to only send at that lower bandwidth, to
+ * allow narrowing of the chanctx request for this station/interface.
+ *
+ * Finally, the driver must ensure that if the function returned %true,
+ * ieee80211_finalize_rx_omi_bw() is also called, even for example in
+ * case of HW restart.
+ *
+ * Context: Must be called with wiphy mutex held, and will call back
+ *	    into the driver, so ensure no driver locks are held.
+ *
+ * Return: %true if changes are going to be made, %false otherwise
+ */
+bool ieee80211_prepare_rx_omi_bw(struct ieee80211_link_sta *link_sta,
+				 enum ieee80211_sta_rx_bandwidth bw);
+
+/**
+ * ieee80211_finalize_rx_omi_bw - finalize BW RX OMI update
+ * @link_sta: the link STA the OMI was sent to
+ *
+ * See ieee80211_client_prepare_rx_omi_bw(). Context is the same here
+ * as well.
+ */
+void ieee80211_finalize_rx_omi_bw(struct ieee80211_link_sta *link_sta);
 
 /* for older drivers - let's not document these ... */
 int ieee80211_emulate_add_chanctx(struct ieee80211_hw *hw,

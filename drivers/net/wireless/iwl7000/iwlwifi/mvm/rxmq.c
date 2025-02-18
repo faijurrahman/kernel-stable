@@ -652,15 +652,21 @@ static void iwl_mvm_release_frames_from_notif(struct iwl_mvm *mvm,
 	IWL_DEBUG_HT(mvm, "Frame release notification for BAID %u, NSSN %d\n",
 		     baid, nssn);
 
-	if (WARN_ON_ONCE(baid == IWL_RX_REORDER_DATA_INVALID_BAID ||
-			 baid >= ARRAY_SIZE(mvm->baid_map)))
+	if (IWL_FW_CHECK(mvm,
+			 baid == IWL_RX_REORDER_DATA_INVALID_BAID ||
+			 baid >= ARRAY_SIZE(mvm->baid_map),
+			 "invalid BAID from FW: %d\n", baid))
 		return;
 
 	rcu_read_lock();
 
 	ba_data = rcu_dereference(mvm->baid_map[baid]);
-	if (WARN(!ba_data, "BAID %d not found in map\n", baid))
+	if (!ba_data) {
+		IWL_DEBUG_RX(mvm,
+			     "Got valid BAID %d but not allocated, invalid frame release!\n",
+			     baid);
 		goto out;
+	}
 
 	/* pick any STA ID to find the pointer */
 	sta_id = ffs(ba_data->sta_mask) - 1;
@@ -789,9 +795,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		return false;
 	}
 
-	rcu_read_lock();
 	sta_mask = iwl_mvm_sta_fw_id_mask(mvm, sta, -1);
-	rcu_read_unlock();
 
 	if (IWL_FW_CHECK(mvm,
 			 tid != baid_data->tid ||
@@ -830,7 +834,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	if (!buffer->num_stored && ieee80211_sn_less(sn, nssn)) {
 		if (!amsdu || last_subframe)
 			buffer->head_sn = nssn;
-		/* No need to update AMSDU last SN - we are moving the head */
+
 		spin_unlock_bh(&buffer->lock);
 		return false;
 	}
@@ -847,7 +851,6 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		if (!amsdu || last_subframe)
 			buffer->head_sn = ieee80211_sn_inc(buffer->head_sn);
 
-		/* No need to update AMSDU last SN - we are moving the head */
 		spin_unlock_bh(&buffer->lock);
 		return false;
 	}
@@ -856,9 +859,6 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	index = sn % baid_data->buf_size;
 	__skb_queue_tail(&entries[index].frames, skb);
 	buffer->num_stored++;
-
-	if (amsdu)
-		buffer->last_amsdu = sn;
 
 	/*
 	 * We cannot trust NSSN for AMSDU sub-frames that are not the last.
@@ -1011,7 +1011,7 @@ iwl_mvm_decode_he_phy_ru_alloc(struct iwl_mvm_rx_phy_data *phy_data,
 	 */
 	u8 ru = le32_get_bits(phy_data->d1, IWL_RX_PHY_DATA1_HE_RU_ALLOC_MASK);
 	u32 rate_n_flags = phy_data->rate_n_flags;
-	u32 he_type = rate_n_flags & RATE_MCS_HE_TYPE_MSK_V1;
+	u32 he_type = rate_n_flags & RATE_MCS_HE_TYPE_MSK;
 	u8 offs = 0;
 
 	rx_status->bw = RATE_INFO_BW_HE_RU;
@@ -1066,13 +1066,13 @@ iwl_mvm_decode_he_phy_ru_alloc(struct iwl_mvm_rx_phy_data *phy_data,
 
 	if (he_mu)
 		he_mu->flags2 |=
-			le16_encode_bits(FIELD_GET(RATE_MCS_CHAN_WIDTH_MSK_V1,
+			le16_encode_bits(FIELD_GET(RATE_MCS_CHAN_WIDTH_MSK,
 						   rate_n_flags),
 					 IEEE80211_RADIOTAP_HE_MU_FLAGS2_BW_FROM_SIG_A_BW);
-	else if (he_type == RATE_MCS_HE_TYPE_TRIG_V1)
+	else if (he_type == RATE_MCS_HE_TYPE_TRIG)
 		he->data6 |=
 			cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA6_TB_PPDU_BW_KNOWN) |
-			le16_encode_bits(FIELD_GET(RATE_MCS_CHAN_WIDTH_MSK_V1,
+			le16_encode_bits(FIELD_GET(RATE_MCS_CHAN_WIDTH_MSK,
 						   rate_n_flags),
 					 IEEE80211_RADIOTAP_HE_DATA6_TB_PPDU_BW);
 }
@@ -1981,18 +1981,6 @@ static void iwl_mvm_rx_fill_status(struct iwl_mvm *mvm,
 	}
 }
 
-/* On FPGA, AP sends beacons/probe resp on all channels causing the station
- * to (wrongly) accept these superfluous frames and update BSS info on all scanned
- * channels. This results in connection failure since the BSS is updated
- * wrongly. Discard frames which the Rx frequency does not match the frame
- * payload information.
- */
-static bool iwl_mvm_is_valid_packet_channel(struct ieee80211_rx_status *rx_status,
-					    struct sk_buff *skb)
-{
-	return true;
-}
-
 void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 			struct iwl_rx_cmd_buffer *rxb, int queue)
 {
@@ -2312,8 +2300,7 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 	}
 
 	if (!iwl_mvm_reorder(mvm, napi, queue, sta, skb, desc) &&
-	    (likely(!iwl_mvm_time_sync_frame(mvm, skb, hdr->addr2))) &&
-	    iwl_mvm_is_valid_packet_channel(rx_status, skb)
+	    (likely(!iwl_mvm_time_sync_frame(mvm, skb, hdr->addr2)))
 	   ) {
 		if (mvm->trans->trans_cfg->device_family == IWL_DEVICE_FAMILY_9000 &&
 		    (desc->mac_flags2 & IWL_RX_MPDU_MFLG2_AMSDU) &&
@@ -2478,18 +2465,23 @@ void iwl_mvm_rx_bar_frame_release(struct iwl_mvm *mvm, struct napi_struct *napi,
 {
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
 	struct iwl_bar_frame_release *release = (void *)pkt->data;
-	unsigned int baid = le32_get_bits(release->ba_info,
-					  IWL_BAR_FRAME_RELEASE_BAID_MASK);
-	unsigned int nssn = le32_get_bits(release->ba_info,
-					  IWL_BAR_FRAME_RELEASE_NSSN_MASK);
-	unsigned int sta_id = le32_get_bits(release->sta_tid,
-					    IWL_BAR_FRAME_RELEASE_STA_MASK);
-	unsigned int tid = le32_get_bits(release->sta_tid,
-					 IWL_BAR_FRAME_RELEASE_TID_MASK);
 	struct iwl_mvm_baid_data *baid_data;
+	u32 pkt_len = iwl_rx_packet_payload_len(pkt);
+	unsigned int baid, nssn, sta_id, tid;
 
-	if (unlikely(iwl_rx_packet_payload_len(pkt) < sizeof(*release)))
+	if (IWL_FW_CHECK(mvm, pkt_len < sizeof(*release),
+			 "Unexpected frame release notif size %d (expected %ld)\n",
+			 pkt_len, sizeof(*release)))
 		return;
+
+	baid = le32_get_bits(release->ba_info,
+			     IWL_BAR_FRAME_RELEASE_BAID_MASK);
+	nssn = le32_get_bits(release->ba_info,
+			     IWL_BAR_FRAME_RELEASE_NSSN_MASK);
+	sta_id = le32_get_bits(release->sta_tid,
+			       IWL_BAR_FRAME_RELEASE_STA_MASK);
+	tid = le32_get_bits(release->sta_tid,
+			    IWL_BAR_FRAME_RELEASE_TID_MASK);
 
 	if (WARN_ON_ONCE(baid == IWL_RX_REORDER_DATA_INVALID_BAID ||
 			 baid >= ARRAY_SIZE(mvm->baid_map)))

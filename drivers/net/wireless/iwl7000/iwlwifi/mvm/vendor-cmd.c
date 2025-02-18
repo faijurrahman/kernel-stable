@@ -563,13 +563,30 @@ free:
 }
 
 static int
-iwl_vendor_cmd_fill_links_info(struct ieee80211_vif *vif, struct sk_buff *skb)
+iwl_mvm_fill_vendor_link_type(struct ieee80211_vif *vif, struct sk_buff *skb,
+			      unsigned int link_id)
+{
+	lockdep_assert_held(&ieee80211_vif_to_wdev(vif)->wiphy->mtx);
+
+	if (ieee80211_vif_type_p2p(vif) == NL80211_IFTYPE_STATION) {
+		if (link_id == iwl_mvm_get_primary_link(vif))
+			return nla_put_u8(skb, IWL_MVM_VENDOR_ATTR_LINK_TYPE,
+					  IWL_VENDOR_PRIMARY_LINK);
+		return nla_put_u8(skb, IWL_MVM_VENDOR_ATTR_LINK_TYPE,
+				  IWL_VENDOR_SECONDARY_LINK);
+	}
+	return 0;
+}
+
+static int
+iwl_vendor_cmd_fill_links_info(struct wiphy *wiphy, struct ieee80211_vif *vif,
+			       struct sk_buff *skb)
 {
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	unsigned int link_id;
 	int ret = 0;
 
-	rcu_read_lock();
+	lockdep_assert_held(&wiphy->mtx);
 
 	for_each_mvm_vif_valid_link(mvmvif, link_id) {
 		const struct cfg80211_chan_def *chandef;
@@ -577,7 +594,7 @@ iwl_vendor_cmd_fill_links_info(struct ieee80211_vif *vif, struct sk_buff *skb)
 		u8 channel;
 		u8 phy_band;
 
-		link_conf = rcu_dereference(vif->link_conf[link_id]);
+		link_conf = wiphy_dereference(wiphy, vif->link_conf[link_id]);
 		if (WARN_ON_ONCE(!link_conf))
 			continue;
 
@@ -599,22 +616,22 @@ iwl_vendor_cmd_fill_links_info(struct ieee80211_vif *vif, struct sk_buff *skb)
 				chandef->center_freq1) ||
 		    (chandef->center_freq2 &&
 		     nla_put_u32(skb, IWL_MVM_VENDOR_ATTR_CENTER_FREQ2,
-				 chandef->center_freq2))) {
+				 chandef->center_freq2)) ||
+		    iwl_mvm_fill_vendor_link_type(vif, skb, link_id)) {
 			ret = -ENOBUFS;
 			break;
 		}
 	}
 
-	rcu_read_unlock();
 	return ret;
 }
 
 /*
  * Calculate the response size based on the maximum number of active links.
- * Each link requires 47 bytes, plus 4 bytes for the attribute header and an
+ * Each link requires 52 bytes, plus 4 bytes for the attribute header and an
  * additional 20 bytes for potential future use.
  */
-#define links_info_response_size(max_active_liks) ((max_active_liks) * 47 +\
+#define links_info_response_size(max_active_links) ((max_active_links) * 52 +\
 						   4 + 20)
 
 static int iwl_vendor_get_links_info(struct wiphy *wiphy,
@@ -644,7 +661,7 @@ static int iwl_vendor_get_links_info(struct wiphy *wiphy,
 		goto err;
 	}
 
-	ret = iwl_vendor_cmd_fill_links_info(vif, skb);
+	ret = iwl_vendor_cmd_fill_links_info(wiphy, vif, skb);
 	if (ret)
 		goto err;
 
@@ -654,6 +671,30 @@ static int iwl_vendor_get_links_info(struct wiphy *wiphy,
 err:
 	kfree_skb(skb);
 	return ret;
+}
+
+static int
+iwl_vendor_exit_emlsr(struct wiphy *wiphy, struct wireless_dev *wdev,
+		      const void *data, int data_len)
+{
+	struct ieee80211_vif *vif = wdev_to_ieee80211_vif(wdev);
+	struct iwl_mvm_vif *mvmvif;
+	struct iwl_mvm *mvm;
+
+	if (!vif)
+		return -ENODEV;
+
+	mvmvif = iwl_mvm_vif_from_mac80211(vif);
+	mvm = mvmvif->mvm;
+
+	guard(mvm)(mvm);
+
+	if (mvm->rfi_wlan_master)
+		return -EINVAL;
+
+	iwl_mvm_exit_esr(mvm, vif, IWL_MVM_ESR_EXIT_RFI,
+			 iwl_mvm_get_primary_link(vif));
+	return 0;
 }
 
 static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
@@ -668,14 +709,20 @@ static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
 		.per_band.dev_52_low = cpu_to_le16(IWL_DEV_MAX_TX_POWER),
 		.per_band.dev_52_high = cpu_to_le16(IWL_DEV_MAX_TX_POWER),
 	};
+	struct iwl_tx_power_driver_limits driver_limits_cmd = {
+		.valid_bitmap = IWL_TX_POWER_DRIVER_LIMIT_DEVICE_POWER,
+	};
 	struct nlattr **tb;
 	int len;
 	int err;
 	u8 cmd_ver = iwl_fw_lookup_cmd_ver(mvm->fw, REDUCE_TX_POWER_CMD,
 					   IWL_FW_CMD_VER_UNKNOWN);
+	u8 cmd_ver_limits = iwl_fw_lookup_cmd_ver(mvm->fw,
+						  WIDE_ID(PHY_OPS_GROUP,
+							  DRIVER_LIMITS_CMD),
+						  IWL_FW_CMD_VER_UNKNOWN);
 
-	/* ver9 and above of the command does not support setting per band limits */
-	if (cmd_ver > 8)
+	if (cmd_ver > 8 && cmd_ver_limits != 1)
 		return -EOPNOTSUPP;
 
 	tb = iwl_mvm_parse_vendor_data(data, data_len);
@@ -690,6 +737,7 @@ static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
 			goto free;
 		}
 		cmd.per_band.dev_24 = cpu_to_le16(txp);
+		driver_limits_cmd.dev_24 = cpu_to_le16(txp);
 	}
 
 	if (tb[IWL_MVM_VENDOR_ATTR_TXP_LIMIT_52L]) {
@@ -700,6 +748,7 @@ static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
 			goto free;
 		}
 		cmd.per_band.dev_52_low = cpu_to_le16(txp);
+		driver_limits_cmd.dev_52_low = cpu_to_le16(txp);
 	}
 
 	if (tb[IWL_MVM_VENDOR_ATTR_TXP_LIMIT_52H]) {
@@ -710,6 +759,7 @@ static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
 			goto free;
 		}
 		cmd.per_band.dev_52_high = cpu_to_le16(txp);
+		driver_limits_cmd.dev_52_high = cpu_to_le16(txp);
 	}
 
 	if (cmd_ver == 8)
@@ -732,12 +782,25 @@ static int iwl_vendor_set_nic_txpower_limit(struct wiphy *wiphy,
 	len += sizeof(cmd.per_band);
 
 	mutex_lock(&mvm->mutex);
-	if (iwl_mvm_firmware_running(mvm))
-		err = iwl_mvm_send_cmd_pdu(mvm, REDUCE_TX_POWER_CMD,
-					   0, len, &cmd);
-	else
+	if (iwl_mvm_firmware_running(mvm)) {
+		if (cmd_ver_limits != IWL_FW_CMD_VER_UNKNOWN)
+			err = iwl_mvm_send_cmd_pdu(mvm,
+						   WIDE_ID(PHY_OPS_GROUP,
+							   DRIVER_LIMITS_CMD),
+						   0, sizeof(driver_limits_cmd),
+						   &driver_limits_cmd);
+		else
+			err = iwl_mvm_send_cmd_pdu(mvm, REDUCE_TX_POWER_CMD,
+						   0, len, &cmd);
+	} else {
 		err = 0;
+	}
 
+	/*
+	 * Keep the REDUCED_TX_POWER command even if we have support for the
+	 * new command. We feed the same values anyway. This allows debugfs to
+	 * retrieve the right values in both cases.
+	 */
 	if (err)
 		IWL_ERR(mvm, "failed to update device TX power: %d\n", err);
 	else
@@ -1983,6 +2046,17 @@ static const struct wiphy_vendor_command iwl_mvm_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = iwl_vendor_get_links_info,
+		.policy = iwl_mvm_vendor_attr_policy,
+		.maxattr = MAX_IWL_MVM_VENDOR_ATTR,
+	},
+	{
+		.info = {
+			.vendor_id = INTEL_OUI,
+			.subcmd = IWL_MVM_VENDOR_CMD_EXIT_EMLSR,
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
+			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.doit = iwl_vendor_exit_emlsr,
 		.policy = iwl_mvm_vendor_attr_policy,
 		.maxattr = MAX_IWL_MVM_VENDOR_ATTR,
 	},

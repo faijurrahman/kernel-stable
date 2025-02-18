@@ -266,7 +266,7 @@ struct iwl_reduce_tx_power_cmd {
 } __packed; /* TX_REDUCED_POWER_API_S_VER_1 */
 
 enum iwl_dev_tx_power_cmd_mode {
-	IWL_TX_POWER_MODE_SET_MAC = 0,
+	IWL_TX_POWER_MODE_SET_LINK = 0,
 	IWL_TX_POWER_MODE_SET_DEVICE = 1,
 	IWL_TX_POWER_MODE_SET_CHAINS = 2,
 	IWL_TX_POWER_MODE_SET_ACK = 3,
@@ -283,12 +283,14 @@ enum iwl_dev_tx_power_cmd_mode {
 /**
  * struct iwl_dev_tx_power_common - Common part of the TX power reduction cmd
  * @set_mode: see &enum iwl_dev_tx_power_cmd_mode
- * @mac_context_id: id of the mac ctx for which we are reducing TX power.
+ * @link_id: id of the link ctx for which we are reducing TX power.
+ *	For version 9 / 10, this is the link id. For earlier versions, it is
+ *	the mac id.
  * @pwr_restriction: TX power restriction in 1/8 dBms.
  */
 struct iwl_dev_tx_power_common {
 	__le32 set_mode;
-	__le32 mac_context_id;
+	__le32 link_id;
 	__le16 pwr_restriction;
 } __packed;
 
@@ -836,4 +838,36 @@ struct iwl_txpower_constraints_cmd {
 	__s8 psd_pwr[IWL_MAX_TX_EIRP_PSD_PWR_MAX_SIZE];
 	u8 reserved[3];
 } __packed; /* PHY_AP_TX_POWER_CONSTRAINTS_CMD_API_S_VER_1 */
+
+/**
+ * enum iwl_tx_power_valid_bitmap
+ * validity of fields of &struct iwl_tx_power_driver_limits
+ * @IWL_TX_POWER_DRIVER_LIMIT_DEVICE_POWER: &dev_24, &dev_52_low and
+ *	&dev_52_high are valid.
+ * @IWL_TX_POWER_DRIVER_LIMIT_VLP_BACKOFF: &tpc_vlp_backoff_level is valid.
+ */
+enum iwl_tx_power_valid_bitmap {
+	IWL_TX_POWER_DRIVER_LIMIT_DEVICE_POWER = BIT(0),
+	IWL_TX_POWER_DRIVER_LIMIT_VLP_BACKOFF = BIT(1),
+};
+
+/**
+ * struct iwl_tx_power_driver_limits - tx power limitations
+ * DRIVER_LIMITS_CMD
+ * @dev_24: device TX power restriction in 1/8 dBms
+ * @dev_52_low: device TX power restriction upper band - low
+ * @dev_52_high: device TX power restriction upper band - high
+ * @tpc_vlp_backoff_level: user backoff of UNII5,7 VLP channels in USA.
+ *	Not in use.
+ * @valid_bitmap: tells which value should be applied. See
+ *	&enum iwl_tx_power_valid_bitmap
+ */
+struct iwl_tx_power_driver_limits {
+	__le16 dev_24;
+	__le16 dev_52_low;
+	__le16 dev_52_high;
+	u8 tpc_vlp_backoff_level;
+	u8 valid_bitmap;
+} __packed; /* DRIVER_LIMITS_API_S_VER_1 */
+
 #endif /* __iwl_fw_api_power_h__ */

@@ -989,7 +989,8 @@ free:
 
 static int ieee80211_config_bw(struct ieee80211_link_data *link,
 			       struct ieee802_11_elems *elems,
-			       bool update, u64 *changed)
+			       bool update, u64 *changed,
+			       const char *frame)
 {
 	struct ieee80211_channel *channel = link->conf->chanreq.oper.chan;
 	struct ieee80211_sub_if_data *sdata = link->sdata;
@@ -1014,9 +1015,10 @@ static int ieee80211_config_bw(struct ieee80211_link_data *link,
 
 	if (ap_mode != link->u.mgd.conn.mode) {
 		link_info(link,
-			  "AP appears to change mode (expected %s, found %s), disconnect\n",
+			  "AP %pM appears to change mode (expected %s, found %s) in %s, disconnect\n",
+			  link->u.mgd.bssid,
 			  ieee80211_conn_mode_str(link->u.mgd.conn.mode),
-			  ieee80211_conn_mode_str(ap_mode));
+			  ieee80211_conn_mode_str(ap_mode), frame);
 		return -EINVAL;
 	}
 
@@ -1061,16 +1063,16 @@ static int ieee80211_config_bw(struct ieee80211_link_data *link,
 		return 0;
 
 	link_info(link,
-		  "AP %pM changed bandwidth, new used config is %d.%03d MHz, width %d (%d.%03d/%d MHz)\n",
-		  link->u.mgd.bssid, chanreq.oper.chan->center_freq,
+		  "AP %pM changed bandwidth in %s, new used config is %d.%03d MHz, width %d (%d.%03d/%d MHz)\n",
+		  link->u.mgd.bssid, frame, chanreq.oper.chan->center_freq,
 		  chanreq.oper.chan->freq_offset, chanreq.oper.width,
 		  chanreq.oper.center_freq1, chanreq.oper.freq1_offset,
 		  chanreq.oper.center_freq2);
 
 	if (!cfg80211_chandef_valid(&chanreq.oper)) {
 		sdata_info(sdata,
-			   "AP %pM changed caps/bw in a way we can't support - disconnect\n",
-			   link->u.mgd.bssid);
+			   "AP %pM changed caps/bw in %s in a way we can't support - disconnect\n",
+			   link->u.mgd.bssid, frame);
 		return -EINVAL;
 	}
 
@@ -1099,8 +1101,8 @@ static int ieee80211_config_bw(struct ieee80211_link_data *link,
 	ret = ieee80211_link_change_chanreq(link, &chanreq, changed);
 	if (ret) {
 		sdata_info(sdata,
-			   "AP %pM changed bandwidth to incompatible one - disconnect\n",
-			   link->u.mgd.bssid);
+			   "AP %pM changed bandwidth in %s to incompatible one - disconnect\n",
+			   link->u.mgd.bssid, frame);
 		return ret;
 	}
 
@@ -2639,8 +2641,6 @@ ieee80211_sta_process_chanswitch(struct ieee80211_link_data *link,
 	 */
 	link->conf->csa_active = true;
 	link->u.mgd.csa.blocked_tx = csa_ie.mode;
-	sdata->csa_blocked_queues =
-		csa_ie.mode && !ieee80211_hw_check(&local->hw, HANDLES_QUIET_CSA);
 
 	wiphy_work_queue(sdata->local->hw.wiphy,
 			 &ifmgd->csa_connection_drop_work);
@@ -3115,18 +3115,18 @@ void ieee80211_dynamic_ps_timer(struct timer_list *t)
 
 void ieee80211_dfs_cac_timer_work(struct wiphy *wiphy, struct wiphy_work *work)
 {
-	struct ieee80211_sub_if_data *sdata =
-		container_of(work, struct ieee80211_sub_if_data,
+	struct ieee80211_link_data *link =
+		container_of(work, struct ieee80211_link_data,
 			     dfs_cac_timer_work.work);
-	struct cfg80211_chan_def chandef = sdata->vif.bss_conf.chanreq.oper;
+	struct cfg80211_chan_def chandef = link->conf->chanreq.oper;
+	struct ieee80211_sub_if_data *sdata = link->sdata;
 
 	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
 	if (sdata->wdev.cac_started) {
-		ieee80211_link_release_channel(&sdata->deflink);
+		ieee80211_link_release_channel(link);
 		cfg80211_cac_event(sdata->dev, &chandef,
-				   NL80211_RADAR_CAC_FINISHED,
-				   GFP_KERNEL);
+				   NL80211_RADAR_CAC_FINISHED, GFP_KERNEL);
 	}
 }
 
@@ -3601,6 +3601,7 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 {
 	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
 	struct ieee80211_local *local = sdata->local;
+	struct sta_info *ap_sta = sta_info_get(sdata, sdata->vif.cfg.ap_addr);
 	unsigned int link_id;
 	u64 changed = 0;
 	struct ieee80211_prep_tx_info info = {
@@ -3612,6 +3613,9 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 	};
 
 	lockdep_assert_wiphy(local->hw.wiphy);
+
+	if (WARN_ON(!ap_sta))
+		return;
 
 	if (WARN_ON_ONCE(tx && !frame_buf))
 		return;
@@ -3676,8 +3680,16 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 
 	sdata->vif.cfg.ssid_len = 0;
 
-	/* remove AP and TDLS peers */
-	sta_info_flush(sdata, -1);
+	/* Remove TDLS peers */
+	__sta_info_flush(sdata, false, -1, ap_sta);
+
+	if (sdata->vif.driver_flags & IEEE80211_VIF_REMOVE_AP_AFTER_DISASSOC) {
+		/* Only move the AP state */
+		sta_info_move_state(ap_sta, IEEE80211_STA_NONE);
+	} else {
+		/* Remove AP peer */
+		sta_info_flush(sdata, -1);
+	}
 
 	/* finally reset all BSS / config parameters */
 	if (!ieee80211_vif_is_mld(&sdata->vif))
@@ -3726,6 +3738,14 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 		ieee80211_bss_info_change_notify(sdata, changed);
 	} else {
 		ieee80211_vif_cfg_change_notify(sdata, changed);
+	}
+
+	if (sdata->vif.driver_flags & IEEE80211_VIF_REMOVE_AP_AFTER_DISASSOC) {
+		/*
+		 * After notifying the driver about the disassoc,
+		 * remove the ap sta.
+		 */
+		sta_info_flush(sdata, -1);
 	}
 
 	/* disassociated - set to defaults now */
@@ -4193,8 +4213,13 @@ EXPORT_SYMBOL(ieee80211_beacon_loss);
 
 void ieee80211_connection_loss(struct ieee80211_vif *vif)
 {
-	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
-	struct ieee80211_hw *hw = &sdata->local->hw;
+	struct ieee80211_sub_if_data *sdata;
+	struct ieee80211_hw *hw;
+
+	KUNIT_STATIC_STUB_REDIRECT(ieee80211_connection_loss, vif);
+
+	sdata = vif_to_sdata(vif);
+	hw = &sdata->local->hw;
 
 	trace_api_connection_loss(sdata);
 
@@ -4831,6 +4856,7 @@ static bool ieee80211_assoc_config_link(struct ieee80211_link_data *link,
 		parse_params.start = bss_ies->data;
 		parse_params.len = bss_ies->len;
 		parse_params.bss = cbss;
+		parse_params.link_id = -1;
 		bss_elems = ieee802_11_parse_elems_full(&parse_params);
 		if (!bss_elems) {
 			ret = false;
@@ -4904,7 +4930,7 @@ static bool ieee80211_assoc_config_link(struct ieee80211_link_data *link,
 	/* check/update if AP changed anything in assoc response vs. scan */
 	if (ieee80211_config_bw(link, elems,
 				link_id == assoc_data->assoc_link_id,
-				changed)) {
+				changed, "assoc response")) {
 		ret = false;
 		goto out;
 	}
@@ -5752,7 +5778,6 @@ static bool ieee80211_assoc_success(struct ieee80211_sub_if_data *sdata,
 		}
 
 		if (link_id != assoc_data->assoc_link_id) {
-			ieee80211_sta_init_nss(link_sta);
 			err = ieee80211_sta_activate_link(sta, link_id);
 			if (err)
 				goto out_err;
@@ -5762,7 +5787,7 @@ static bool ieee80211_assoc_success(struct ieee80211_sub_if_data *sdata,
 	/* links might have changed due to rejected ones, set them again */
 	ieee80211_vif_set_links(sdata, valid_links, dormant_links);
 
-	rate_control_rate_init(sta);
+	rate_control_rate_init_all_links(sta);
 
 	if (ifmgd->flags & IEEE80211_STA_MFP_ENABLED) {
 		set_sta_flag(sta, WLAN_STA_MFP);
@@ -7085,7 +7110,7 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_link_data *link,
 
 	changed |= ieee80211_recalc_twt_req(sdata, sband, link, link_sta, elems);
 
-	if (ieee80211_config_bw(link, elems, true, &changed)) {
+	if (ieee80211_config_bw(link, elems, true, &changed, "beacon")) {
 		ieee80211_set_disassoc(sdata, IEEE80211_STYPE_DEAUTH,
 				       WLAN_REASON_DEAUTH_LEAVING,
 				       true, deauth_buf);

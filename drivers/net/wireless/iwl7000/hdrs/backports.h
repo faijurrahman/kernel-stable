@@ -266,6 +266,10 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype type)
 	return NULL;
 }
 
+#ifndef for_each_valid_link
+#define for_each_valid_link(dev, id) for (link_id = 0; link_id < 1; link_id++)
+#endif
+
 #define ASSOC_REQ_DISABLE_EHT BIT(5)
 #define NL80211_EXT_FEATURE_POWERED_ADDR_CHANGE -1
 
@@ -409,6 +413,13 @@ static inline void backport_led_trigger_blink(struct led_trigger *trigger,
 #define __cleanup(func) __attribute__((__cleanup__(func)))
 #endif
 
+static inline u32
+iwl7000_ieee80211_mandatory_rates(struct ieee80211_supported_band *sband)
+{
+	return ieee80211_mandatory_rates(sband, NL80211_BSS_CHAN_WIDTH_20);
+}
+#define ieee80211_mandatory_rates iwl7000_ieee80211_mandatory_rates
+
 void ieee80211_fragment_element(struct sk_buff *skb, u8 *len_pos, u8 frag_id);
 
 static inline void
@@ -461,12 +472,6 @@ WRAP_LOCKED(cfg80211_links_removed)(struct net_device *dev, u16 removed_links)
 	mutex_unlock(&dev->ieee80211_ptr->mtx);
 }
 #define cfg80211_links_removed WRAP_LOCKED(cfg80211_links_removed)
-static inline u32
-iwl7000_ieee80211_mandatory_rates(struct ieee80211_supported_band *sband)
-{
-	return ieee80211_mandatory_rates(sband, NL80211_BSS_CHAN_WIDTH_20);
-}
-#define ieee80211_mandatory_rates iwl7000_ieee80211_mandatory_rates
 
 static inline bool LINUX_BACKPORT(napi_schedule)(struct napi_struct *n)
 {
@@ -547,6 +552,7 @@ ssize_t wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
 	return ret;
 }
 #endif
+#define KUNIT_STATIC_STUB_REDIRECT(real_fn_name, args...) do {} while (0)
 
 static inline void cfg80211_schedule_channels_check(struct wireless_dev *wdev)
 {
@@ -711,6 +717,13 @@ static inline void LINUX_BACKPORT(free_netdev)(struct net_device *dev)
 	free_netdev(dev);
 }
 #define free_netdev LINUX_BACKPORT(free_netdev)
+
+#define kmemdup_array LINUX_BACKPORT(kmemdup_array)
+static inline void *
+kmemdup_array(const void *src, size_t count, size_t element_size, gfp_t gfp)
+{
+       return kmemdup(src, element_size * count, gfp);
+}
 
 
 enum ieee80211_ap_reg_power {

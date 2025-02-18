@@ -112,8 +112,8 @@ u32 iwl_mvm_get_sec_flags(struct iwl_mvm *mvm,
 		flags |= IWL_SEC_KEY_FLAG_SPP_AMSDU;
 
 #ifdef CPTCFG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
-	if (mvm->trans->dbg_cfg.MVM_SPP_AMSDU_ACTIVATE >= 0) {
-		if (mvm->trans->dbg_cfg.MVM_SPP_AMSDU_ACTIVATE)
+	if (mvm->trans->dbg_cfg.SPP_AMSDU_ACTIVATE >= 0) {
+		if (mvm->trans->dbg_cfg.SPP_AMSDU_ACTIVATE)
 			flags |= IWL_SEC_KEY_FLAG_SPP_AMSDU;
 		else
 			flags &= ~IWL_SEC_KEY_FLAG_SPP_AMSDU;
@@ -405,7 +405,7 @@ void iwl_mvm_sec_key_remove_ap(struct iwl_mvm *mvm,
 	u8 sec_key_ver = iwl_fw_lookup_cmd_ver(mvm->fw, sec_key_id, 0);
 
 	if (WARN_ON_ONCE(vif->type != NL80211_IFTYPE_STATION ||
-			 link->ap_sta_id == IWL_MVM_INVALID_STA))
+			 link->ap_sta_id == IWL_INVALID_STA))
 		return;
 
 	if (!sec_key_ver)

@@ -47,7 +47,7 @@ int iwl_mvm_find_free_sta_id(struct iwl_mvm *mvm, enum nl80211_iftype iftype)
 					       lockdep_is_held(&mvm->mutex)))
 			return sta_id;
 	}
-	return IWL_MVM_INVALID_STA;
+	return IWL_INVALID_STA;
 }
 
 /* Calculate the ampdu density and max size */
@@ -1207,7 +1207,7 @@ static bool iwl_mvm_remove_inactive_tids(struct iwl_mvm *mvm,
  * can be unshared and finding one (and only one) that can be
  * reused.
  * This function is also invoked as a sort of clean-up task,
- * in which case @alloc_for_sta is IWL_MVM_INVALID_STA.
+ * in which case @alloc_for_sta is IWL_INVALID_STA.
  *
  * Returns the queue number, or -ENOSPC.
  */
@@ -1300,7 +1300,7 @@ static int iwl_mvm_inactivity_check(struct iwl_mvm *mvm, u8 alloc_for_sta)
 
 	rcu_read_unlock();
 
-	if (free_queue >= 0 && alloc_for_sta != IWL_MVM_INVALID_STA) {
+	if (free_queue >= 0 && alloc_for_sta != IWL_INVALID_STA) {
 		ret = iwl_mvm_free_inactive_queue(mvm, free_queue, queue_owner,
 						  alloc_for_sta);
 		if (ret)
@@ -1511,9 +1511,14 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 	struct iwl_mvm *mvm = container_of(wk, struct iwl_mvm,
 					   add_stream_wk);
 
-	mutex_lock(&mvm->mutex);
+	guard(mvm)(mvm);
 
-	iwl_mvm_inactivity_check(mvm, IWL_MVM_INVALID_STA);
+	/* will reschedule to run after restart */
+	if (test_bit(IWL_MVM_STATUS_HW_RESTART_REQUESTED, &mvm->status) ||
+	    test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status))
+		return;
+
+	iwl_mvm_inactivity_check(mvm, IWL_INVALID_STA);
 
 	while (!list_empty(&mvm->add_stream_txqs)) {
 		struct iwl_mvm_txq *mvmtxq;
@@ -1555,8 +1560,6 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 		iwl_mvm_mac_itxq_xmit(mvm->hw, txq);
 		local_bh_enable();
 	}
-
-	mutex_unlock(&mvm->mutex);
 }
 
 static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
@@ -1571,7 +1574,7 @@ static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
 		return 0;
 
 	/* run the general cleanup/unsharing of queues */
-	iwl_mvm_inactivity_check(mvm, IWL_MVM_INVALID_STA);
+	iwl_mvm_inactivity_check(mvm, IWL_INVALID_STA);
 
 	/* Make sure we have free resources for this STA */
 	if (vif_type == NL80211_IFTYPE_STATION && !sta->tdls &&
@@ -1747,7 +1750,7 @@ int iwl_mvm_sta_init(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	 * this function
 	 */
 	if (!mvm->mld_api_is_used) {
-		if (WARN_ON(sta_id == IWL_MVM_INVALID_STA))
+		if (WARN_ON(sta_id == IWL_INVALID_STA))
 			return -EINVAL;
 
 		mvm_sta->deflink.sta_id = sta_id;
@@ -1855,7 +1858,7 @@ int iwl_mvm_add_sta(struct iwl_mvm *mvm,
 	else
 		sta_id = mvm_sta->deflink.sta_id;
 
-	if (sta_id == IWL_MVM_INVALID_STA)
+	if (sta_id == IWL_INVALID_STA)
 		return -ENOSPC;
 
 	spin_lock_init(&mvm_sta->lock);
@@ -1893,10 +1896,10 @@ update_fw:
 
 	if (vif->type == NL80211_IFTYPE_STATION) {
 		if (!sta->tdls) {
-			WARN_ON(mvmvif->deflink.ap_sta_id != IWL_MVM_INVALID_STA);
+			WARN_ON(mvmvif->deflink.ap_sta_id != IWL_INVALID_STA);
 			mvmvif->deflink.ap_sta_id = sta_id;
 		} else {
-			WARN_ON(mvmvif->deflink.ap_sta_id == IWL_MVM_INVALID_STA);
+			WARN_ON(mvmvif->deflink.ap_sta_id == IWL_INVALID_STA);
 		}
 	}
 
@@ -2035,9 +2038,9 @@ int iwl_mvm_wait_sta_queues_empty(struct iwl_mvm *mvm,
  * Returns if we're done with removing the station, either
  * with error or success
  */
-bool iwl_mvm_sta_del(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
+void iwl_mvm_sta_del(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		     struct ieee80211_sta *sta,
-		     struct ieee80211_link_sta *link_sta, int *ret)
+		     struct ieee80211_link_sta *link_sta)
 {
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_vif_link_info *mvm_link =
@@ -2053,39 +2056,13 @@ bool iwl_mvm_sta_del(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 					  lockdep_is_held(&mvm->mutex));
 	sta_id = mvm_link_sta->sta_id;
 
-	/* If there is a TXQ still marked as reserved - free it */
-	if (mvm_sta->reserved_queue != IEEE80211_INVAL_HW_QUEUE) {
-		u8 reserved_txq = mvm_sta->reserved_queue;
-		enum iwl_mvm_queue_status *status;
-
-		/*
-		 * If no traffic has gone through the reserved TXQ - it
-		 * is still marked as IWL_MVM_QUEUE_RESERVED, and
-		 * should be manually marked as free again
-		 */
-		status = &mvm->queue_info[reserved_txq].status;
-		if (WARN((*status != IWL_MVM_QUEUE_RESERVED) &&
-			 (*status != IWL_MVM_QUEUE_FREE),
-			 "sta_id %d reserved txq %d status %d",
-			 sta_id, reserved_txq, *status)) {
-			*ret = -EINVAL;
-			return true;
-		}
-
-		*status = IWL_MVM_QUEUE_FREE;
-	}
-
 	if (vif->type == NL80211_IFTYPE_STATION &&
 	    mvm_link->ap_sta_id == sta_id) {
-		/* if associated - we can't remove the AP STA now */
-		if (vif->cfg.assoc)
-			return true;
-
 		/* first remove remaining keys */
-		iwl_mvm_sec_key_remove_ap(mvm, vif, mvm_link, 0);
+		iwl_mvm_sec_key_remove_ap(mvm, vif, mvm_link,
+					  link_sta->link_id);
 
-		/* unassoc - go ahead - remove the AP STA now */
-		mvm_link->ap_sta_id = IWL_MVM_INVALID_STA;
+		mvm_link->ap_sta_id = IWL_INVALID_STA;
 	}
 
 	/*
@@ -2093,11 +2070,9 @@ bool iwl_mvm_sta_del(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	 * before the STA is removed.
 	 */
 	if (WARN_ON_ONCE(mvm->tdls_cs.peer.sta_id == sta_id)) {
-		mvm->tdls_cs.peer.sta_id = IWL_MVM_INVALID_STA;
+		mvm->tdls_cs.peer.sta_id = IWL_INVALID_STA;
 		cancel_delayed_work(&mvm->tdls_cs.dwork);
 	}
-
-	return false;
 }
 
 int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
@@ -2133,8 +2108,27 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 
 	iwl_mvm_disable_sta_queues(mvm, vif, sta);
 
-	if (iwl_mvm_sta_del(mvm, vif, sta, &sta->deflink, &ret))
-		return ret;
+	/* If there is a TXQ still marked as reserved - free it */
+	if (mvm_sta->reserved_queue != IEEE80211_INVAL_HW_QUEUE) {
+		u8 reserved_txq = mvm_sta->reserved_queue;
+		enum iwl_mvm_queue_status *status;
+
+		/*
+		 * If no traffic has gone through the reserved TXQ - it
+		 * is still marked as IWL_MVM_QUEUE_RESERVED, and
+		 * should be manually marked as free again
+		 */
+		status = &mvm->queue_info[reserved_txq].status;
+		if (WARN((*status != IWL_MVM_QUEUE_RESERVED) &&
+			 (*status != IWL_MVM_QUEUE_FREE),
+			 "sta_id %d reserved txq %d status %d",
+			 mvm_sta->deflink.sta_id, reserved_txq, *status))
+			return -EINVAL;
+
+		*status = IWL_MVM_QUEUE_FREE;
+	}
+
+	iwl_mvm_sta_del(mvm, vif, sta, &sta->deflink);
 
 	ret = iwl_mvm_rm_sta_common(mvm, mvm_sta->deflink.sta_id);
 	RCU_INIT_POINTER(mvm->fw_id_to_mac_id[mvm_sta->deflink.sta_id], NULL);
@@ -2160,9 +2154,9 @@ int iwl_mvm_allocate_int_sta(struct iwl_mvm *mvm,
 			     u8 type)
 {
 	if (!test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status) ||
-	    sta->sta_id == IWL_MVM_INVALID_STA) {
+	    sta->sta_id == IWL_INVALID_STA) {
 		sta->sta_id = iwl_mvm_find_free_sta_id(mvm, iftype);
-		if (WARN_ON_ONCE(sta->sta_id == IWL_MVM_INVALID_STA))
+		if (WARN_ON_ONCE(sta->sta_id == IWL_INVALID_STA))
 			return -ENOSPC;
 	}
 
@@ -2178,7 +2172,7 @@ void iwl_mvm_dealloc_int_sta(struct iwl_mvm *mvm, struct iwl_mvm_int_sta *sta)
 {
 	RCU_INIT_POINTER(mvm->fw_id_to_mac_id[sta->sta_id], NULL);
 	memset(sta, 0, sizeof(struct iwl_mvm_int_sta));
-	sta->sta_id = IWL_MVM_INVALID_STA;
+	sta->sta_id = IWL_INVALID_STA;
 }
 
 static void iwl_mvm_enable_aux_snif_queue(struct iwl_mvm *mvm, u16 queue,
@@ -2296,7 +2290,7 @@ int iwl_mvm_rm_snif_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 	lockdep_assert_held(&mvm->mutex);
 
-	if (WARN_ON_ONCE(mvm->snif_sta.sta_id == IWL_MVM_INVALID_STA))
+	if (WARN_ON_ONCE(mvm->snif_sta.sta_id == IWL_INVALID_STA))
 		return -EINVAL;
 
 	iwl_mvm_disable_txq(mvm, NULL, mvm->snif_sta.sta_id,
@@ -2314,7 +2308,7 @@ int iwl_mvm_rm_aux_sta(struct iwl_mvm *mvm)
 
 	lockdep_assert_held(&mvm->mutex);
 
-	if (WARN_ON_ONCE(mvm->aux_sta.sta_id == IWL_MVM_INVALID_STA))
+	if (WARN_ON_ONCE(mvm->aux_sta.sta_id == IWL_INVALID_STA))
 		return -EINVAL;
 
 	iwl_mvm_disable_txq(mvm, NULL, mvm->aux_sta.sta_id,
@@ -2379,7 +2373,7 @@ int iwl_mvm_send_add_bcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	if (vif->type == NL80211_IFTYPE_ADHOC)
 		baddr = vif->bss_conf.bssid;
 
-	if (WARN_ON_ONCE(bsta->sta_id == IWL_MVM_INVALID_STA))
+	if (WARN_ON_ONCE(bsta->sta_id == IWL_INVALID_STA))
 		return -ENOSPC;
 
 	ret = iwl_mvm_add_int_sta_common(mvm, bsta, baddr,
@@ -2634,7 +2628,7 @@ static int __iwl_mvm_remove_sta_key(struct iwl_mvm *mvm, u8 sta_id,
 	u32 status;
 
 	/* This is a valid situation for GTK removal */
-	if (sta_id == IWL_MVM_INVALID_STA)
+	if (sta_id == IWL_INVALID_STA)
 		return 0;
 
 	key_flags = cpu_to_le16((keyconf->keyidx << STA_KEY_FLG_KEYID_POS) &
@@ -3504,7 +3498,7 @@ static struct iwl_mvm_sta *iwl_mvm_get_key_sta(struct iwl_mvm *mvm,
 	 * station ID, then use AP's station ID.
 	 */
 	if (vif->type == NL80211_IFTYPE_STATION &&
-	    mvmvif->deflink.ap_sta_id != IWL_MVM_INVALID_STA) {
+	    mvmvif->deflink.ap_sta_id != IWL_INVALID_STA) {
 		u8 sta_id = mvmvif->deflink.ap_sta_id;
 
 		sta = rcu_dereference_check(mvm->fw_id_to_mac_id[sta_id],
@@ -3559,7 +3553,7 @@ static int iwl_mvm_send_sta_key(struct iwl_mvm *mvm,
 	int api_ver = iwl_fw_lookup_cmd_ver(mvm->fw, ADD_STA_KEY,
 					    new_api ? 2 : 1);
 
-	if (sta_id == IWL_MVM_INVALID_STA)
+	if (sta_id == IWL_INVALID_STA)
 		return -EINVAL;
 
 	keyidx = (key->keyidx << STA_KEY_FLG_KEYID_POS) &
@@ -3571,8 +3565,8 @@ static int iwl_mvm_send_sta_key(struct iwl_mvm *mvm,
 		key_flags |= cpu_to_le16(STA_KEY_FLG_AMSDU_SPP);
 
 #ifdef CPTCFG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
-	if (mvm->trans->dbg_cfg.MVM_SPP_AMSDU_ACTIVATE >= 0) {
-		if (mvm->trans->dbg_cfg.MVM_SPP_AMSDU_ACTIVATE)
+	if (mvm->trans->dbg_cfg.SPP_AMSDU_ACTIVATE >= 0) {
+		if (mvm->trans->dbg_cfg.SPP_AMSDU_ACTIVATE)
 			key_flags |= cpu_to_le16(STA_KEY_FLG_AMSDU_SPP);
 		else
 			key_flags &= ~cpu_to_le16(STA_KEY_FLG_AMSDU_SPP);
@@ -3727,7 +3721,7 @@ static int iwl_mvm_send_sta_igtk(struct iwl_mvm *mvm,
 
 	if (remove_key) {
 		/* This is a valid situation for IGTK */
-		if (sta_id == IWL_MVM_INVALID_STA)
+		if (sta_id == IWL_INVALID_STA)
 			return 0;
 
 		igtk_cmd.ctrl_flags |= cpu_to_le32(STA_KEY_NOT_VALID);
@@ -3794,7 +3788,7 @@ static inline u8 *iwl_mvm_get_mac_addr(struct iwl_mvm *mvm,
 		return sta->addr;
 
 	if (vif->type == NL80211_IFTYPE_STATION &&
-	    mvmvif->deflink.ap_sta_id != IWL_MVM_INVALID_STA) {
+	    mvmvif->deflink.ap_sta_id != IWL_INVALID_STA) {
 		u8 sta_id = mvmvif->deflink.ap_sta_id;
 		sta = rcu_dereference_protected(mvm->fw_id_to_mac_id[sta_id],
 						lockdep_is_held(&mvm->mutex));
@@ -3864,7 +3858,7 @@ int iwl_mvm_set_sta_key(struct iwl_mvm *mvm,
 {
 	bool mcast = !(keyconf->flags & IEEE80211_KEY_FLAG_PAIRWISE);
 	struct iwl_mvm_sta *mvm_sta;
-	u8 sta_id = IWL_MVM_INVALID_STA;
+	u8 sta_id = IWL_INVALID_STA;
 	int ret;
 	static const u8 __maybe_unused zero_addr[ETH_ALEN] = {0};
 
@@ -3965,7 +3959,7 @@ int iwl_mvm_remove_sta_key(struct iwl_mvm *mvm,
 {
 	bool mcast = !(keyconf->flags & IEEE80211_KEY_FLAG_PAIRWISE);
 	struct iwl_mvm_sta *mvm_sta;
-	u8 sta_id = IWL_MVM_INVALID_STA;
+	u8 sta_id = IWL_INVALID_STA;
 	int ret, i;
 
 	lockdep_assert_held(&mvm->mutex);
@@ -4272,7 +4266,7 @@ void iwl_mvm_modify_all_sta_disable_tx(struct iwl_mvm *mvm,
 		return;
 
 	/* Need to block/unblock also multicast station */
-	if (mvmvif->deflink.mcast_sta.sta_id != IWL_MVM_INVALID_STA)
+	if (mvmvif->deflink.mcast_sta.sta_id != IWL_INVALID_STA)
 		iwl_mvm_int_sta_modify_disable_tx(mvm, mvmvif,
 						  &mvmvif->deflink.mcast_sta,
 						  disable);
@@ -4281,7 +4275,7 @@ void iwl_mvm_modify_all_sta_disable_tx(struct iwl_mvm *mvm,
 	 * Only unblock the broadcast station (FW blocks it for immediate
 	 * quiet, not the driver)
 	 */
-	if (!disable && mvmvif->deflink.bcast_sta.sta_id != IWL_MVM_INVALID_STA)
+	if (!disable && mvmvif->deflink.bcast_sta.sta_id != IWL_INVALID_STA)
 		iwl_mvm_int_sta_modify_disable_tx(mvm, mvmvif,
 						  &mvmvif->deflink.bcast_sta,
 						  disable);

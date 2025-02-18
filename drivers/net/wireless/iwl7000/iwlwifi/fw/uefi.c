@@ -19,9 +19,12 @@
  * disable the feature in old kernels.
  */
 #if LINUX_VERSION_IS_GEQ(5,4,0)
-#define IWL_EFI_VAR_GUID EFI_GUID(0x92daaf2f, 0xc02b, 0x455b,	\
-				  0xb2, 0xec, 0xf5, 0xa3,	\
-				  0x59, 0x4f, 0x4a, 0xea)
+#define IWL_EFI_WIFI_GUID	EFI_GUID(0x92daaf2f, 0xc02b, 0x455b,	\
+					 0xb2, 0xec, 0xf5, 0xa3,	\
+					 0x59, 0x4f, 0x4a, 0xea)
+#define IWL_EFI_WIFI_BT_GUID	EFI_GUID(0xe65d8884, 0xd4af, 0x4b20,	\
+					 0x8d, 0x03, 0x77, 0x2e,	\
+					 0xcc, 0x3d, 0xa5, 0x31)
 
 struct iwl_uefi_pnvm_mem_desc {
 	__le32 addr;
@@ -67,7 +70,7 @@ void *iwl_uefi_get_pnvm(struct iwl_trans *trans, size_t *len)
 
 	*len = 0;
 
-	data = iwl_uefi_get_variable(IWL_UEFI_OEM_PNVM_NAME, &IWL_EFI_VAR_GUID,
+	data = iwl_uefi_get_variable(IWL_UEFI_OEM_PNVM_NAME, &IWL_EFI_WIFI_GUID,
 				     &package_size);
 	if (IS_ERR(data)) {
 		IWL_DEBUG_FW(trans,
@@ -82,18 +85,18 @@ void *iwl_uefi_get_pnvm(struct iwl_trans *trans, size_t *len)
 	return data;
 }
 
-static
-void *iwl_uefi_get_verified_variable(struct iwl_trans *trans,
-				     efi_char16_t *uefi_var_name,
-				     char *var_name,
-				     unsigned int expected_size,
-				     unsigned long *size)
+static void *
+iwl_uefi_get_verified_variable_guid(struct iwl_trans *trans,
+				    efi_guid_t *guid,
+				    efi_char16_t *uefi_var_name,
+				    char *var_name,
+				    unsigned int expected_size,
+				    unsigned long *size)
 {
 	void *var;
 	unsigned long var_size;
 
-	var = iwl_uefi_get_variable(uefi_var_name, &IWL_EFI_VAR_GUID,
-				    &var_size);
+	var = iwl_uefi_get_variable(uefi_var_name, guid, &var_size);
 
 	if (IS_ERR(var)) {
 		IWL_DEBUG_RADIO(trans,
@@ -116,6 +119,18 @@ void *iwl_uefi_get_verified_variable(struct iwl_trans *trans,
 	if (size)
 		*size = var_size;
 	return var;
+}
+
+static void *
+iwl_uefi_get_verified_variable(struct iwl_trans *trans,
+			       efi_char16_t *uefi_var_name,
+			       char *var_name,
+			       unsigned int expected_size,
+			       unsigned long *size)
+{
+	return iwl_uefi_get_verified_variable_guid(trans, &IWL_EFI_WIFI_GUID,
+						   uefi_var_name, var_name,
+						   expected_size, size);
 }
 
 int iwl_uefi_handle_tlv_mem_desc(struct iwl_trans *trans, const u8 *data,
@@ -317,8 +332,9 @@ void iwl_uefi_get_step_table(struct iwl_trans *trans)
 	if (trans->trans_cfg->device_family < IWL_DEVICE_FAMILY_AX210)
 		return;
 
-	data = iwl_uefi_get_verified_variable(trans, IWL_UEFI_STEP_NAME,
-					      "STEP", sizeof(*data), NULL);
+	data = iwl_uefi_get_verified_variable_guid(trans, &IWL_EFI_WIFI_BT_GUID,
+						   IWL_UEFI_STEP_NAME,
+						   "STEP", sizeof(*data), NULL);
 	if (IS_ERR(data))
 		return;
 
@@ -392,6 +408,9 @@ static int iwl_uefi_uats_parse(struct uefi_cnv_wlan_uats_data *uats_data,
 
 	memcpy(fwrt->uats_table.offset_map, uats_data->offset_map,
 	       sizeof(fwrt->uats_table.offset_map));
+
+	fwrt->uats_valid = true;
+
 	return 0;
 }
 
@@ -561,14 +580,15 @@ int iwl_uefi_get_tas_table(struct iwl_fw_runtime *fwrt,
 			   struct iwl_tas_data *tas_data)
 {
 	struct uefi_cnv_var_wtas *uefi_tas;
-	int ret = 0, enabled, i;
+	int ret = 1, enabled, i;
 
 	uefi_tas = iwl_uefi_get_verified_variable(fwrt->trans, IWL_UEFI_WTAS_NAME,
 						  "WTAS", sizeof(*uefi_tas), NULL);
 	if (IS_ERR(uefi_tas))
 		return -EINVAL;
 
-	if (uefi_tas->revision != IWL_UEFI_WTAS_REVISION) {
+	if (uefi_tas->revision < IWL_UEFI_MIN_WTAS_REVISION ||
+	    uefi_tas->revision > IWL_UEFI_MAX_WTAS_REVISION) {
 		ret = -EINVAL;
 		IWL_DEBUG_RADIO(fwrt, "Unsupported UEFI WTAS revision:%d\n",
 				uefi_tas->revision);
@@ -576,7 +596,9 @@ int iwl_uefi_get_tas_table(struct iwl_fw_runtime *fwrt,
 	}
 
 	enabled = iwl_parse_tas_selection(fwrt, tas_data,
-					  uefi_tas->tas_selection);
+					  uefi_tas->tas_selection,
+					  uefi_tas->revision);
+
 	if (!enabled) {
 		IWL_DEBUG_RADIO(fwrt, "TAS not enabled\n");
 		ret = 0;
@@ -765,4 +787,30 @@ int iwl_uefi_get_puncturing(struct iwl_fw_runtime *fwrt)
 	return puncturing;
 }
 IWL_EXPORT_SYMBOL(iwl_uefi_get_puncturing);
+
+int iwl_uefi_get_dsbr(struct iwl_fw_runtime *fwrt, u32 *value)
+{
+	struct uefi_cnv_wlan_dsbr_data *data;
+	int ret = 0;
+
+	data = iwl_uefi_get_verified_variable_guid(fwrt->trans,
+						   &IWL_EFI_WIFI_BT_GUID,
+						   IWL_UEFI_DSBR_NAME, "DSBR",
+						   sizeof(*data), NULL);
+	if (IS_ERR(data))
+		return -EINVAL;
+
+	if (data->revision != IWL_UEFI_DSBR_REVISION) {
+		ret = -EINVAL;
+		IWL_DEBUG_RADIO(fwrt, "Unsupported UEFI DSBR revision:%d\n",
+				data->revision);
+		goto out;
+	}
+	*value = data->config;
+	IWL_DEBUG_RADIO(fwrt, "Loaded DSBR config from UEFI value: 0x%x\n",
+			*value);
+out:
+	kfree(data);
+	return ret;
+}
 #endif /* >= 5.4 */

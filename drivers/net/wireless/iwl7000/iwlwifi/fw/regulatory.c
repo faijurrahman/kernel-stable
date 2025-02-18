@@ -39,6 +39,7 @@ IWL_BIOS_TABLE_LOADER_DATA(pwr_limit, u64);
 IWL_BIOS_TABLE_LOADER_DATA(mcc, char);
 IWL_BIOS_TABLE_LOADER_DATA(eckv, u32);
 IWL_BIOS_TABLE_LOADER_DATA(wbem, u32);
+IWL_BIOS_TABLE_LOADER_DATA(dsbr, u32);
 
 
 static const struct dmi_system_id dmi_ppag_approved_list[] = {
@@ -447,10 +448,12 @@ IWL_EXPORT_SYMBOL(iwl_is_tas_approved);
 
 int iwl_parse_tas_selection(struct iwl_fw_runtime *fwrt,
 			    struct iwl_tas_data *tas_data,
-			    const u32 tas_selection)
+			    const u32 tas_selection, u8 tbl_rev)
 {
 	u8 override_iec = u32_get_bits(tas_selection,
 				       IWL_WTAS_OVERRIDE_IEC_MSK);
+	u8 canada_tas_uhb = u32_get_bits(tas_selection,
+					 IWL_WTAS_CANADA_UHB_MSK);
 	u8 enabled_iec = u32_get_bits(tas_selection, IWL_WTAS_ENABLE_IEC_MSK);
 	u8 usa_tas_uhb = u32_get_bits(tas_selection, IWL_WTAS_USA_UHB_MSK);
 	int enabled = tas_selection & IWL_WTAS_ENABLED_MSK;
@@ -462,10 +465,13 @@ int iwl_parse_tas_selection(struct iwl_fw_runtime *fwrt,
 	tas_data->override_tas_iec = override_iec;
 	tas_data->enable_tas_iec = enabled_iec;
 
+	if (tbl_rev > 1)
+		tas_data->canada_tas_uhb_allowed = canada_tas_uhb;
+
 	return enabled;
 }
 
-static __le32 iwl_get_lari_config_bitmap(struct iwl_fw_runtime *fwrt)
+__le32 iwl_get_lari_config_bitmap(struct iwl_fw_runtime *fwrt)
 {
 	int ret;
 	u32 val;
@@ -512,6 +518,7 @@ static __le32 iwl_get_lari_config_bitmap(struct iwl_fw_runtime *fwrt)
 
 	return config_bitmap;
 }
+IWL_EXPORT_SYMBOL(iwl_get_lari_config_bitmap);
 
 static size_t iwl_get_lari_config_cmd_size(u8 cmd_ver)
 {
@@ -562,6 +569,10 @@ int iwl_fill_lari_config(struct iwl_fw_runtime *fwrt,
 					   WIDE_ID(REGULATORY_AND_NVM_GROUP,
 						   LARI_CONFIG_CHANGE), 1);
 
+	if (WARN_ONCE(cmd_ver > 12,
+		      "Don't add newer versions to this function\n"))
+		return -EINVAL;
+
 	memset(cmd, 0, sizeof(*cmd));
 	*cmd_size = iwl_get_lari_config_cmd_size(cmd_ver);
 
@@ -591,7 +602,13 @@ int iwl_fill_lari_config(struct iwl_fw_runtime *fwrt,
 	if (!ret) {
 		if (cmd_ver < 8)
 			value &= ~ACTIVATE_5G2_IN_WW_MASK;
-		if (cmd_ver < 12)
+
+		/* Since version 12, bits 5 and 6 are supported
+		 * regardless of this capability.
+		 */
+		if (cmd_ver < 12 &&
+		    !fw_has_capa(&fwrt->fw->ucode_capa,
+				 IWL_UCODE_TLV_CAPA_BIOS_OVERRIDE_UNII4_US_CA))
 			value &= CHAN_STATE_ACTIVE_BITMAP_CMD_V11;
 
 		cmd->chan_state_active_bitmap = cpu_to_le32(value);

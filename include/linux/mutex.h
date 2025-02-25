@@ -246,4 +246,6 @@ extern void mutex_unlock(struct mutex *lock);
 
 extern int atomic_dec_and_mutex_lock(atomic_t *cnt, struct mutex *lock);
 
+extern unsigned long mutex_get_owner(struct mutex *lock);
+
 #endif /* __LINUX_MUTEX_H */

@@ -197,7 +197,7 @@ static bool drm_drallion_privacy_screen_register(struct device *dev)
 		&adev->dev, &chromeos_privacy_screen_ops, &adev->dev);
 
 	if (IS_ERR(drm_privacy_screen)) {
-		dev_err(&adev->dev, "Error registering privacy-screen: %d\n",
+		dev_err(&adev->dev, "Error registering privacy-screen: %ld\n",
 				PTR_ERR(drm_privacy_screen));
 		return false;
 	}

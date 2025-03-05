@@ -2709,6 +2709,7 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 			 * Use packet size 24 for the chip
 			 */
 			hdev->wbs_pkt_len = 24;
+			fallthrough;
 		case 0x11:      /* JfP */
 		case 0x12:      /* ThP */
 		case 0x13:      /* HrP */
